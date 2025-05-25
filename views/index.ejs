@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>企业微信应用</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body {
+      padding-top: 20px;
+    }
+    .user-avatar {
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      object-fit: cover;
+    }
+    .login-status {
+      padding: 10px 0;
+      background-color: #f8f9fa;
+      margin-bottom: 20px;
+    }
+    .qr-scanner {
+      margin: 20px 0;
+    }
+    .qr-results {
+      margin-top: 30px;
+    }
+    /* 添加表格内容折行显示的样式 */
+    .table td, .table th {
+      word-break: break-word;
+      word-wrap: break-word;
+      white-space: normal;
+      max-width: 300px; /* 设置最大宽度 */
+      vertical-align: middle;
+    }
+    /* 时间列宽度固定 */
+    .table th:first-child,
+    .table td:first-child {
+      width: 150px;
+    }
+    /* 内容列自适应 */
+    .table th:last-child,
+    .table td:last-child {
+      width: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- 登录状态栏 -->
+    <div class="login-status">
+      <div class="row align-items-center">
+        <div class="col-md-8">
+          <% if (userInfo) { %>
+            <span class="text-success">✓ 已登录</span> - 欢迎，<strong><%= userInfo.name %></strong> (<%= userInfo.userid %>)
+          <% } else { %>
+            <span class="text-danger">✗ 未登录</span>
+          <% } %>
+        </div>
+        <div class="col-md-4 text-end">
+          <% if (userInfo) { %>
+            <a href="/logout" class="btn btn-outline-secondary btn-sm">重新登录</a>
+          <% } else { %>
+            <a href="/" class="btn btn-primary btn-sm">登录</a>
+          <% } %>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <!-- 用户信息 -->
+      <% if (userInfo) { %>
+        <div class="col-md-6">
+          <div class="card">
+            <div class="card-header">用户信息</div>
+            <div class="card-body text-center">
+              <% if (userInfo.avatar) { %>
+                <img src="<%= userInfo.avatar %>" alt="头像" class="user-avatar mb-3">
+              <% } else { %>
+                <div class="user-avatar bg-secondary d-flex align-items-center justify-content-center mb-3 mx-auto">
+                  <span class="text-white fs-1"><%= userInfo.name.charAt(0) %></span>
+                </div>
+              <% } %>
+              <h5><%= userInfo.name %></h5>
+              <p class="text-muted"><%= userInfo.position || '无职位信息' %></p>
+              <table class="table table-striped">
+                <tbody>
+                  <tr>
+                    <th>用户ID</th>
+                    <td><%= userInfo.userid %></td>
+                  </tr>
+                  <tr>
+                    <th>部门</th>
+                    <td>
+                      <% if (userInfo.department && userInfo.department.length > 0) { %>
+                        <%= userInfo.department.join(', ') %>
+                      <% } else { %>
+                        无部门信息
+                      <% } %>
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>邮箱</th>
+                    <td><%= userInfo.email || '无邮箱信息' %></td>
+                  </tr>
+                  <tr>
+                    <th>手机</th>
+                    <td><%= userInfo.mobile || '无手机信息' %></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      <% } %>
+
+      <!-- 二维码扫描 -->
+      <div class="col-md-6">
+        <div class="card">
+          <div class="card-header">二维码扫描</div>
+          <div class="card-body">
+            <div class="qr-scanner">
+              <button id="scanQrBtn" class="btn btn-primary">扫描二维码</button>
+              <div id="scanResult" class="alert alert-info mt-3" style="display: none;"></div>
+            </div>
+
+            <!-- 扫描结果表格 -->
+            <div class="qr-results">
+              <h5>扫描历史</h5>
+              <div class="table-responsive"> <!-- 添加响应式表格容器 -->
+                <table class="table table-striped table-hover">
+                  <thead>
+                    <tr>
+                      <th>时间</th>
+                      <th>内容</th>
+                    </tr>
+                  </thead>
+                  <tbody id="resultsTable">
+                    <% if (qrResults && qrResults.length > 0) { %>
+                      <% qrResults.forEach(function(result) { %>
+                        <tr>
+                          <td><%= result.timestamp %></td>
+                          <td><%= result.content %></td>
+                        </tr>
+                      <% }); %>
+                    <% } else { %>
+                      <tr>
+                        <td colspan="2" class="text-center">暂无扫描记录</td>
+                      </tr>
+                    <% } %>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 添加音频元素 -->
+  <audio id="successSound" src="/sounds/success.mp3" preload="auto"></audio>
+  <audio id="errorSound" src="/sounds/error.mp3" preload="auto"></audio>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+  <!-- 添加企业微信JS-SDK -->
+  <script src="https://res.wx.qq.com/open/js/jweixin-1.2.0.js"></script>
+  <script src="/js/main.js"></script>
+</body>
+</html>
