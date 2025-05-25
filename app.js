@@ -7,6 +7,10 @@ const fs = require('fs');
 const { createCanvas, loadImage } = require('canvas');
 const jsQR = require('jsqr');
 
+// 引入数据库模块
+const db = require('./db');
+const { saveWecomUser, recordScan } = db;
+
 const app = express();
 const port = 27273;
 
@@ -134,13 +138,57 @@ app.get('/', async (req, res) => {
       return res.render('error', { message: '获取用户详细信息失败' });
     }
     
+    // 保存用户信息到数据库
+    try {
+      await saveWecomUser(userDetail);
+      console.log('用户信息已保存到数据库');
+    } catch (dbError) {
+      console.error('保存用户信息到数据库失败:', dbError);
+      // 数据库操作失败不影响用户体验，继续处理
+    }
+    
     // 保存用户信息到会话
     req.session.userInfo = userDetail;
     req.session.accessToken = accessToken;
     
+    // 从数据库获取用户的扫码历史记录
+    let dbScanRecords = [];
+    try {
+      const result = await db.pool.query(
+        'SELECT * FROM wecom.scan_records WHERE userid = $1 ORDER BY scan_time DESC LIMIT 10',
+        [userDetail.userid]
+      );
+      dbScanRecords = result.rows.map(record => ({
+        content: record.scan_result,
+        timestamp: record.scan_time.toLocaleString(),
+        type: record.scan_type,
+        status: record.status
+      }));
+    } catch (dbError) {
+      console.error('获取扫码历史记录失败:', dbError);
+      // 获取历史记录失败不影响页面渲染
+    }
+    
+    // 合并会话中的记录和数据库中的记录
+    const sessionRecords = req.session.qrResults || [];
+    const allRecords = [...sessionRecords];
+    
+    // 添加数据库记录，避免重复
+    dbScanRecords.forEach(dbRecord => {
+      // 检查是否已存在于会话记录中
+      const exists = allRecords.some(r => r.content === dbRecord.content);
+      if (!exists) {
+        allRecords.push(dbRecord);
+      }
+    });
+    
+    // 按时间排序并限制数量
+    allRecords.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    const limitedRecords = allRecords.slice(0, 20);
+    
     return res.render('index', { 
       userInfo: userDetail,
-      qrResults: req.session.qrResults || []
+      qrResults: limitedRecords
     });
   }
   
@@ -189,6 +237,17 @@ app.post('/scan-qr', upload.single('qrImage'), async (req, res) => {
       // 只保留最近10条记录
       if (req.session.qrResults.length > 10) {
         req.session.qrResults = req.session.qrResults.slice(0, 10);
+      }
+      
+      // 保存扫码记录到数据库
+      if (req.session.userInfo && req.session.userInfo.userid) {
+        try {
+          await recordScan(req.session.userInfo.userid, code.data);
+          console.log('扫码记录已保存到数据库');
+        } catch (dbError) {
+          console.error('保存扫码记录到数据库失败:', dbError);
+          // 数据库操作失败不影响用户体验，继续处理
+        }
       }
       
       return res.json({ success: true, content: code.data });
@@ -290,6 +349,17 @@ app.post('/save-scan-result', async (req, res) => {
     req.session.qrResults = req.session.qrResults.slice(0, 10);
   }
   
+  // 保存扫码记录到数据库
+  if (req.session.userInfo && req.session.userInfo.userid) {
+    try {
+      await recordScan(req.session.userInfo.userid, content);
+      console.log('微信扫码记录已保存到数据库');
+    } catch (dbError) {
+      console.error('保存微信扫码记录到数据库失败:', dbError);
+      // 数据库操作失败不影响用户体验，继续处理
+    }
+  }
+  
   // 发送消息到企业微信机器人
   try {
     await sendToWechatRobot(content);
@@ -299,6 +369,34 @@ app.post('/save-scan-result', async (req, res) => {
   }
   
   return res.json({ success: true });
+});
+
+// 获取用户扫码历史记录
+app.get('/scan-history', async (req, res) => {
+  if (!req.session.userInfo || !req.session.userInfo.userid) {
+    return res.status(401).json({ success: false, message: '未登录' });
+  }
+  
+  try {
+    // 查询数据库中的扫码记录
+    const result = await db.pool.query(
+      'SELECT * FROM wecom.scan_records WHERE userid = $1 ORDER BY scan_time DESC LIMIT 50',
+      [req.session.userInfo.userid]
+    );
+    
+    return res.json({ 
+      success: true, 
+      records: result.rows.map(record => ({
+        content: record.scan_result,
+        timestamp: record.scan_time.toLocaleString(),
+        type: record.scan_type,
+        status: record.status
+      }))
+    });
+  } catch (error) {
+    console.error('获取扫码历史记录失败:', error);
+    return res.status(500).json({ success: false, message: '获取扫码历史记录失败' });
+  }
 });
 
 app.listen(port, () => {
