@@ -18,7 +18,8 @@ const port = 27273;
 const config = {
   corpid: 'ww94fc58ff493578de',
   corpsecret: '8AQL--JfDHaVUsInPPVigiCYjXS63sLZ6Lz2uUwNh-U',
-  agentid: '1000089'
+  agentid: '1000089',
+  baseUrl: 'http://ustar-test.tiremart.cn:27273' // 例如 'https://example.com' 或 'http://123.456.789.10:27273'
 };
 
 // 配置会话
@@ -193,8 +194,8 @@ app.get('/', async (req, res) => {
   }
   
   // 如果没有code，重定向到企业微信授权页面
-  const redirectUri = encodeURIComponent(`http://${req.headers.host}`);
-  const authUrl = `https://open.weixin.qq.com/connect/oauth2/authorize?appid=${config.corpid}&redirect_uri=${redirectUri}&response_type=code&scope=snsapi_base&state=STATE#wechat_redirect`;
+  const redirectUrl = encodeURIComponent(`${config.baseUrl}/`); 
+  const authUrl = `https://open.weixin.qq.com/connect/oauth2/authorize?appid=${config.corpid}&redirect_uri=${redirectUrl}&response_type=code&scope=snsapi_privateinfo&agentid=${config.agentid}&state=STATE#wechat_redirect`;
   
   res.redirect(authUrl);
 });
