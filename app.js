@@ -400,6 +400,120 @@ app.get('/scan-history', async (req, res) => {
   }
 });
 
+// 后台管理页面路由
+app.get('/admin', async (req, res) => {
+  // 检查用户是否已登录
+  if (!req.session.userInfo) {
+    return res.redirect('/');
+  }
+  
+  try {
+    // 获取分页参数
+    const page = parseInt(req.query.page) || 1;
+    const pageSize = 20;
+    const offset = (page - 1) * pageSize;
+    
+    // 获取筛选参数
+    const userId = req.query.userId || '';
+    const startDate = req.query.startDate || '';
+    const endDate = req.query.endDate || '';
+    const scanType = req.query.scanType || '';
+    
+    // 构建查询条件
+    let queryConditions = [];
+    let queryParams = [];
+    let paramIndex = 1;
+    
+    if (userId) {
+      queryConditions.push(`userid = $${paramIndex++}`);
+      queryParams.push(userId);
+    }
+    
+    if (startDate) {
+      queryConditions.push(`scan_time >= $${paramIndex++}`);
+      queryParams.push(new Date(startDate));
+    }
+    
+    if (endDate) {
+      // 将结束日期设置为当天的23:59:59
+      const endDateTime = new Date(endDate);
+      endDateTime.setHours(23, 59, 59, 999);
+      queryConditions.push(`scan_time <= $${paramIndex++}`);
+      queryParams.push(endDateTime);
+    }
+    
+    if (scanType) {
+      queryConditions.push(`scan_type = $${paramIndex++}`);
+      queryParams.push(scanType);
+    }
+    
+    // 构建WHERE子句
+    const whereClause = queryConditions.length > 0 ? `WHERE ${queryConditions.join(' AND ')}` : '';
+    
+    // 查询总记录数
+    const countQuery = `SELECT COUNT(*) FROM wecom.scan_records ${whereClause}`;
+    const countResult = await db.pool.query(countQuery, queryParams);
+    const totalRecords = parseInt(countResult.rows[0].count);
+    const totalPages = Math.ceil(totalRecords / pageSize);
+    
+    // 查询记录
+    const recordsQuery = `
+      SELECT sr.*, u.name as user_name 
+      FROM wecom.scan_records sr 
+      LEFT JOIN wecom.user_records u ON sr.userid = u.userid 
+      ${whereClause} 
+      ORDER BY sr.scan_time DESC 
+      LIMIT $${paramIndex++} OFFSET $${paramIndex++}
+    `;
+    
+    const recordsParams = [...queryParams, pageSize, offset];
+    const recordsResult = await db.pool.query(recordsQuery, recordsParams);
+    
+    // 处理记录，添加用户信息
+    const records = recordsResult.rows.map(record => {
+      return {
+        ...record,
+        user: {
+          name: record.user_name
+        }
+      };
+    });
+    
+    // 构建分页查询字符串
+    let paginationQuery = '';
+    if (userId) paginationQuery += `&userId=${encodeURIComponent(userId)}`;
+    if (startDate) paginationQuery += `&startDate=${encodeURIComponent(startDate)}`;
+    if (endDate) paginationQuery += `&endDate=${encodeURIComponent(endDate)}`;
+    if (scanType) paginationQuery += `&scanType=${encodeURIComponent(scanType)}`;
+    
+    // 渲染管理页面
+    res.render('admin', {
+      userInfo: req.session.userInfo,
+      records: records,
+      currentPage: page,
+      totalPages: totalPages,
+      paginationQuery: paginationQuery,
+      filters: {
+        userId: userId,
+        startDate: startDate,
+        endDate: endDate,
+        scanType: scanType
+      }
+    });
+  } catch (error) {
+    console.error('获取扫码记录失败:', error);
+    res.render('error', { message: '获取扫码记录失败' });
+  }
+});
+
+// 添加管理页面入口链接到首页
+app.get('/admin-link', (req, res) => {
+  if (!req.session.userInfo) {
+    return res.redirect('/');
+  }
+  res.redirect('/admin');
+});
+
 app.listen(port, () => {
   console.log(`应用运行在 http://localhost:${port}`);
 });
