@@ -2,7 +2,11 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+  <meta http-equiv="ScreenOrientation" content="autoRotate:disabled">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="screen-orientation" content="portrait">
+  <meta name="x5-orientation" content="portrait">
   <title>企业微信应用 - 后台管理</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css" rel="stylesheet">
@@ -10,32 +14,142 @@
     body {
       padding-top: 20px;
       padding-bottom: 40px;
+      background-color: #f9f9f9;
+    }
+    .container {
+      max-width: 1200px;
     }
     .user-avatar {
-      width: 40px;
-      height: 40px;
+      width: 36px;
+      height: 36px;
       border-radius: 50%;
       object-fit: cover;
+      font-size: 14px;
     }
     .login-status {
-      padding: 10px 0;
+      padding: 8px 0;
       background-color: #f8f9fa;
       margin-bottom: 20px;
+      border-radius: 5px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      font-size: 0.9rem;
     }
     .admin-header {
-      margin-bottom: 30px;
+      margin-bottom: 1.5rem;
     }
     .table td, .table th {
       word-break: break-word;
       word-wrap: break-word;
       white-space: normal;
       vertical-align: middle;
+      font-size: 0.9rem;
+      padding: 0.6rem;
     }
-    .filter-form {
-      margin-bottom: 20px;
+    .table th {
+      font-weight: 600;
+      font-size: 0.85rem;
+      text-transform: uppercase;
     }
-    .pagination-container {
-      margin-top: 20px;
+    /* 筛选面板样式 */
+    .card-header[role="button"] {
+      cursor: pointer;
+      transition: background-color 0.2s;
+      padding: 0.75rem 1rem;
+    }
+    .card-header[role="button"]:hover {
+      background-color: #e9ecef;
+    }
+    /* 表单控件样式 */
+    .form-control, .form-select {
+      font-size: 0.9rem;
+      padding: 0.375rem 0.75rem;
+      height: calc(1.9rem + 2px);
+    }
+    .form-label {
+      font-size: 0.85rem;
+      margin-bottom: 0.25rem;
+      font-weight: 500;
+    }
+    .col-form-label {
+      font-size: 0.85rem;
+      font-weight: 500;
+      padding-top: calc(0.375rem + 1px);
+      padding-bottom: calc(0.375rem + 1px);
+      text-align: right;
+    }
+    /* 筛选表单样式 */
+    .card-body .row.align-items-center {
+      margin: 0;
+    }
+    .card-body .form-control-sm, 
+    .card-body .form-select-sm {
+      height: calc(1.8rem + 2px);
+      padding: 0.25rem 0.5rem;
+    }
+    /* 卡片样式 */
+    .card {
+      border: none;
+      border-radius: 0.5rem;
+      overflow: hidden;
+    }
+    .card-header {
+      background-color: rgba(0,0,0,.03);
+      border-bottom: 1px solid rgba(0,0,0,.125);
+    }
+    /* 响应式调整 */
+    @media (max-width: 768px) {
+      .table {
+        font-size: 0.8rem;
+      }
+      .form-control, .form-select {
+        font-size: 0.85rem;
+        height: calc(1.8rem + 2px);
+      }
+    }
+    
+    /* 横屏模式优化 */
+    @media (orientation: landscape) {
+      /* 增加日期输入框宽度 */
+      input[type="date"].form-control {
+        min-width: 140px;
+        width: 100%;
+      }
+      /* 优化表单布局 */
+      .col-form-label {
+        padding-right: 5px;
+        font-size: 0.8rem;
+      }
+      /* 确保下拉框不会导致布局问题 */
+      select.form-select {
+        padding-right: 25px;
+      }
+    }
+    .form-floating > .form-control-sm {
+      height: calc(2.5rem + 2px);
+      padding: 0.5rem 0.75rem;
+    }
+    .form-floating > label {
+      padding: 0.5rem 0.75rem;
+    }
+    .table-responsive {
+      border-radius: 5px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    /* 表格样式优化 */
+    .table {
+      margin-bottom: 0;
+    }
+    .table-hover tbody tr:hover {
+      background-color: rgba(0,123,255,0.05);
+    }
+    /* 响应式调整 */
+    @media (max-width: 767.98px) {
+      .admin-header h2 {
+        font-size: 1.5rem;
+      }
+      .form-floating > .form-control-sm {
+        height: calc(2.25rem + 2px);
+      }
     }
   </style>
 </head>
@@ -68,38 +182,92 @@
       <p class="text-center text-muted">查看和管理所有用户的扫码记录</p>
     </div>
 
-    <!-- 筛选表单 -->
-    <div class="filter-form">
-      <form action="/admin" method="get" class="row g-3">
-        <div class="col-md-3">
-          <label for="userId" class="form-label">用户ID</label>
-          <input type="text" class="form-control" id="userId" name="userId" value="<%= filters.userId || '' %>">
+    <!-- 筛选表单 (折叠面板) -->
+    <div class="card mb-4 shadow-sm">
+      <div class="card-header bg-light d-flex justify-content-between align-items-center" role="button" data-bs-toggle="collapse" data-bs-target="#filterCollapse" aria-expanded="false" aria-controls="filterCollapse">
+        <div>
+          <i class="bi bi-funnel me-2"></i>
+          <strong>筛选条件</strong>
+          <% if (filters.userId || filters.startDate || filters.endDate || filters.scanType) { %>
+            <span class="badge bg-primary ms-2">已筛选</span>
+          <% } %>
         </div>
-        <div class="col-md-3">
-          <label for="startDate" class="form-label">开始日期</label>
-          <input type="date" class="form-control" id="startDate" name="startDate" value="<%= filters.startDate || '' %>">
+        <i class="bi bi-chevron-down"></i>
+      </div>
+      <div class="collapse <%= (filters.userId || filters.startDate || filters.endDate || filters.scanType) ? 'show' : '' %>" id="filterCollapse">
+        <div class="card-body">
+          <form action="/admin" method="get">
+            <div class="row g-2">
+              <div class="col-md-3 col-sm-6">
+                <div class="mb-2 row align-items-center">
+                  <label for="userId" class="col-3 col-form-label">用户ID</label>
+                  <div class="col-9">
+                    <select class="form-select form-select-sm" id="userId" name="userId">
+                      <option value="">全部用户</option>
+                      <% if (usersList && usersList.length > 0) { %>
+                        <% usersList.forEach(function(user) { %>
+                          <option value="<%= user.userid %>" <%= filters.userId === user.userid ? 'selected' : '' %>>
+                            <%= user.name %> (<%= user.userid %>)
+                          </option>
+                        <% }); %>
+                      <% } %>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-3 col-sm-6">
+                <div class="mb-2 row align-items-center">
+                  <label for="startDate" class="col-3 col-form-label">开始日期</label>
+                  <div class="col-9">
+                    <input type="date" class="form-control form-control-sm" id="startDate" name="startDate" value="<%= filters.startDate || '' %>">
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-3 col-sm-6">
+                <div class="mb-2 row align-items-center">
+                  <label for="endDate" class="col-3 col-form-label">结束日期</label>
+                  <div class="col-9">
+                    <input type="date" class="form-control form-control-sm" id="endDate" name="endDate" value="<%= filters.endDate || '' %>">
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-3 col-sm-6">
+                <div class="mb-2 row align-items-center">
+                  <label for="scanType" class="col-3 col-form-label">扫码类型</label>
+                  <div class="col-9">
+                    <select class="form-select form-select-sm" id="scanType" name="scanType">
+                      <option value="">全部类型</option>
+                      <option value="qrcode" <%= filters.scanType === 'qrcode' ? 'selected' : '' %>>二维码</option>
+                      <option value="barcode" <%= filters.scanType === 'barcode' ? 'selected' : '' %>>条形码</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="d-flex justify-content-end mt-2">
+              <a href="/admin" class="btn btn-outline-secondary btn-sm me-2">
+                <i class="bi bi-arrow-counterclockwise me-1"></i>重置
+              </a>
+              <button type="submit" class="btn btn-primary btn-sm">
+                <i class="bi bi-search me-1"></i>筛选
+              </button>
+            </div>
+          </form>
         </div>
-        <div class="col-md-3">
-          <label for="endDate" class="form-label">结束日期</label>
-          <input type="date" class="form-control" id="endDate" name="endDate" value="<%= filters.endDate || '' %>">
-        </div>
-        <div class="col-md-3">
-          <label for="scanType" class="form-label">扫码类型</label>
-          <select class="form-select" id="scanType" name="scanType">
-            <option value="">全部</option>
-            <option value="qrcode" <%= filters.scanType === 'qrcode' ? 'selected' : '' %>>二维码</option>
-            <option value="barcode" <%= filters.scanType === 'barcode' ? 'selected' : '' %>>条形码</option>
-          </select>
-        </div>
-        <div class="col-12 text-end">
-          <button type="submit" class="btn btn-primary">筛选</button>
-          <a href="/admin" class="btn btn-outline-secondary">重置</a>
-        </div>
-      </form>
+      </div>
     </div>
 
     <!-- 扫码记录表格 -->
-    <div class="table-responsive">
+    <div class="table-responsive mt-3">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <div>
+          <i class="bi bi-table me-2"></i>
+          <strong>扫码记录列表</strong>
+          <% if (records && records.length > 0) { %>
+            <span class="badge bg-secondary ms-2"><%= records.length %> 条记录</span>
+          <% } %>
+        </div>
+      </div>
       <table class="table table-striped table-hover">
         <thead class="table-dark">
           <tr>
@@ -129,7 +297,7 @@
                     <% } %>
                   </div>
                 </td>
-                <td><%= new Date(record.scan_time).toLocaleString() %></td>
+                <td><%= new Date(record.scan_time).toLocaleString('zh-CN') %></td>
                 <td><span class="badge bg-info"><%= record.scan_type %></span></td>
                 <td><%= record.scan_result %></td>
                 <td>
@@ -152,25 +320,26 @@
       </table>
     </div>
 
-    <!-- 分页 -->
+    <!-- 分页导航 -->
     <% if (totalPages > 1) { %>
-      <div class="pagination-container d-flex justify-content-center">
+      <div class="mt-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <small class="text-muted">共 <%= totalRecords %> 条记录，<%= totalPages %> 页</small>
+        </div>
         <nav aria-label="Page navigation">
-          <ul class="pagination">
+          <ul class="pagination justify-content-center">
             <li class="page-item <%= currentPage === 1 ? 'disabled' : '' %>">
-              <a class="page-link" href="/admin?page=<%= currentPage - 1 %><%= paginationQuery %>" aria-label="Previous">
+              <a class="page-link" href="/admin?page=<%= currentPage - 1 %><%= queryParams %>" aria-label="Previous">
                 <span aria-hidden="true">&laquo;</span>
               </a>
             </li>
-            
-            <% for(let i = 1; i <= totalPages; i++) { %>
-              <li class="page-item <%= currentPage === i ? 'active' : '' %>">
-                <a class="page-link" href="/admin?page=<%= i %><%= paginationQuery %>"><%= i %></a>
+            <% for(let i = startPage; i <= endPage; i++) { %>
+              <li class="page-item <%= i === currentPage ? 'active' : '' %>">
+                <a class="page-link" href="/admin?page=<%= i %><%= queryParams %>"><%= i %></a>
               </li>
             <% } %>
-            
             <li class="page-item <%= currentPage === totalPages ? 'disabled' : '' %>">
-              <a class="page-link" href="/admin?page=<%= currentPage + 1 %><%= paginationQuery %>" aria-label="Next">
+              <a class="page-link" href="/admin?page=<%= currentPage + 1 %><%= queryParams %>" aria-label="Next">
                 <span aria-hidden="true">&raquo;</span>
               </a>
             </li>

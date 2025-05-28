@@ -118,6 +118,17 @@ async function recordScan(userid, qrContent) {
   }
 }
 
+// 获取去重的用户ID和名称
+async function getDistinctUsers() {
+  try {
+    const result = await pool.query('SELECT DISTINCT userid, name FROM wecom.user_records ORDER BY name');
+    return result.rows;
+  } catch (err) {
+    console.error('获取去重用户失败', err);
+    throw err;
+  }
+}
+
 module.exports = {
   pool,
   getUsers,
@@ -126,5 +137,6 @@ module.exports = {
   getConfig,
   setConfig,
   saveWecomUser,
-  recordScan
+  recordScan,
+  getDistinctUsers
 };

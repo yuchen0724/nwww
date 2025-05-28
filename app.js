@@ -414,7 +414,14 @@ app.get('/admin', async (req, res) => {
     const offset = (page - 1) * pageSize;
     
     // 获取筛选参数
-    const userId = req.query.userId || '';
+    let userId = req.query.userId || '';
+    // 确保只使用userId部分作为查询条件（如果包含括号，提取括号中的内容）
+    // if (userId && userId.includes('(') && userId.includes(')')) {
+    //   const match = userId.match(/\(([^)]+)\)/);
+    //   if (match && match[1]) {
+    //     userId = match[1].trim();
+    //   }
+    // }
     const startDate = req.query.startDate || '';
     const endDate = req.query.endDate || '';
     const scanType = req.query.scanType || '';
@@ -449,7 +456,6 @@ app.get('/admin', async (req, res) => {
     
     // 构建WHERE子句
     const whereClause = queryConditions.length > 0 ? `WHERE ${queryConditions.join(' AND ')}` : '';
-    
     // 查询总记录数
     const countQuery = `SELECT COUNT(*) FROM wecom.scan_records ${whereClause}`;
     const countResult = await db.pool.query(countQuery, queryParams);
@@ -460,12 +466,12 @@ app.get('/admin', async (req, res) => {
     const recordsQuery = `
       SELECT sr.*, u.name as user_name 
       FROM wecom.scan_records sr 
-      LEFT JOIN wecom.user_records u ON sr.userid = u.userid 
+      LEFT JOIN (select distinct userid as user_id,name from wecom.user_records) u ON sr.userid = u.user_id 
       ${whereClause} 
       ORDER BY sr.scan_time DESC 
       LIMIT $${paramIndex++} OFFSET $${paramIndex++}
     `;
-    
+    console.log(`输出信息${recordsQuery}`);
     const recordsParams = [...queryParams, pageSize, offset];
     const recordsResult = await db.pool.query(recordsQuery, recordsParams);
     
@@ -478,6 +484,9 @@ app.get('/admin', async (req, res) => {
         }
       };
     });
+    
+    // 获取去重的用户列表，用于用户ID下拉框
+    const usersList = await db.getDistinctUsers();
     
     // 构建分页查询字符串
     let paginationQuery = '';
@@ -498,7 +507,8 @@ app.get('/admin', async (req, res) => {
         startDate: startDate,
         endDate: endDate,
         scanType: scanType
-      }
+      },
+      usersList: usersList // 传递用户列表到模板
     });
   } catch (error) {
     console.error('获取扫码记录失败:', error);
