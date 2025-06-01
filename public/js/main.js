@@ -71,7 +71,7 @@ document.addEventListener('DOMContentLoaded', function() {
           .then(data => {
             if (data.success) {
               // 添加到表格
-              const now = new Date().toLocaleString();
+              const now = new Date().toLocaleString('zh-CN');
               const newRow = document.createElement('tr');
               newRow.innerHTML = `
                 <td>${now}</td>

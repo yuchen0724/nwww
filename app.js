@@ -180,7 +180,7 @@ app.get('/', async (req, res) => {
       );
       dbScanRecords = result.rows.map(record => ({
         content: record.scan_result,
-        timestamp: record.scan_time.toLocaleString(),
+        timestamp: record.scan_time.toLocaleString('zh-CN'),
         type: record.scan_type,
         status: record.status
       }));
@@ -251,7 +251,7 @@ app.post('/scan-qr', upload.single('qrImage'), async (req, res) => {
       }
       req.session.qrResults.unshift({
         content: code.data,
-        timestamp: new Date().toLocaleString()
+        timestamp: new Date().toLocaleString('zh-CN')
       });
       
       // 只保留最近10条记录
@@ -584,7 +584,7 @@ app.post('/save-scan-result', async (req, res) => {
   
   req.session.qrResults.unshift({
     content: content,
-    timestamp: new Date().toLocaleString()
+    timestamp: new Date().toLocaleString('zh-CN')
   });
   
   // 只保留最近10条记录
@@ -674,7 +674,7 @@ app.get('/scan-history', async (req, res) => {
       success: true, 
       records: result.rows.map(record => ({
         content: record.scan_result,
-        timestamp: record.scan_time.toLocaleString(),
+        timestamp: record.scan_time.toLocaleString('zh-CN'),
         type: record.scan_type,
         status: record.status
       }))
