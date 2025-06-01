@@ -92,6 +92,16 @@ document.addEventListener('DOMContentLoaded', function() {
               }
             } else {
               console.error('保存扫描结果失败:', data.message);
+              // 如果是订单不存在或订单号不匹配的错误，显示特定的错误提示
+              const orderInfo = data.scanned_order ? `（扫描订单号：${data.scanned_order}）` : '';
+
+              if (data.error_type === 'order_not_found') {
+                showResult(`订单不存在${orderInfo}`, 'danger');
+              } else if (data.error_type === 'order_mismatch') {
+                showResult(`订单号不匹配${orderInfo}`, 'danger');
+              } else {
+                showResult('保存扫描结果失败: ' + data.error_type, 'danger');
+              }
             }
           })
           .catch(error => {

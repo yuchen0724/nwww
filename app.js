@@ -9,17 +9,17 @@ const jsQR = require('jsqr');
 
 // 引入数据库模块
 const db = require('./db');
-const { saveWecomUser, recordScan } = db;
+const { saveWecomUser, recordScan, saveKingdeeOrder } = db;
 
 const app = express();
-const port = 27273;
+const port = process.env.PORT || 27273;
 
 // 企业微信配置
 const config = {
   corpid: 'ww94fc58ff493578de',
   corpsecret: '8AQL--JfDHaVUsInPPVigiCYjXS63sLZ6Lz2uUwNh-U',
   agentid: '1000089',
-  baseUrl: 'http://ustar-test.tiremart.cn:27273' // 例如 'https://example.com' 或 'http://123.456.789.10:27273'
+  baseUrl: process.env.BASE_URL || 'http://ustar-test.tiremart.cn:27273' // 例如 'https://example.com' 或 'http://123.456.789.10:27273'
 };
 
 // 配置会话
@@ -148,6 +148,25 @@ app.get('/', async (req, res) => {
       // 数据库操作失败不影响用户体验，继续处理
     }
     
+    // 从wecom.wework_users表获取用户的部门信息
+    try {
+      const userDbResult = await db.pool.query(
+        'SELECT dept_id, dept_name FROM wecom.wework_users WHERE user_id = $1 LIMIT 1',
+        [userDetail.userid]
+      );
+      if (userDbResult.rows.length > 0) {
+        const deptInfo = userDbResult.rows[0];
+        if (deptInfo.dept_name) {
+          // 使用数据库中的部门名称信息
+          userDetail.department = [deptInfo.dept_name];
+          userDetail.dept_id = deptInfo.dept_id;
+        }
+      }
+    } catch (dbError) {
+      console.error('从wecom.wework_users获取用户部门信息失败:', dbError);
+      // 获取部门信息失败不影响用户体验，继续使用企业微信返回的信息
+    }
+
     // 保存用户信息到会话
     req.session.userInfo = userDetail;
     req.session.accessToken = accessToken;
@@ -240,15 +259,65 @@ app.post('/scan-qr', upload.single('qrImage'), async (req, res) => {
         req.session.qrResults = req.session.qrResults.slice(0, 10);
       }
       
+      // 检查用户登录状态
+      if (!req.session.userInfo || !req.session.userInfo.userid) {
+        return res.status(401).json({ success: false, message: '未登录' });
+      }
+      
       // 保存扫码记录到数据库
-      if (req.session.userInfo && req.session.userInfo.userid) {
-        try {
-          await recordScan(req.session.userInfo.userid, code.data);
-          console.log('扫码记录已保存到数据库');
-        } catch (dbError) {
-          console.error('保存扫码记录到数据库失败:', dbError);
-          // 数据库操作失败不影响用户体验，继续处理
+      try {
+        await recordScan(req.session.userInfo.userid, code.data);
+      } catch (dbError) {
+        console.error('保存扫码记录到数据库失败:', dbError);
+        // 数据库操作失败不影响用户体验，继续处理
+      }
+      
+      // 根据订单号调用金蝶接口获取订单信息
+      const orderData = await fetchOrderFromKingdee(code.data);
+      if (!orderData) {
+        console.log('未能从金蝶接口获取到订单信息');
+        return res.json({ 
+          success: false, 
+          message: '扫描错误：订单不存在',
+          error_type: 'order_not_found',
+          scanned_order: code.data
+        });
+      }
+      
+      // 处理订单数据
+      try {
+        const savedOrder = await processAndSaveOrder(orderData, req.session.userInfo.userid, code.data);
+        if (!savedOrder) {
+          return res.json({ 
+            success: false, 
+            message: '订单处理失败',
+            error_type: 'processing_error'
+          });
         }
+        console.log('订单信息获取并保存成功');
+      } catch (orderError) {
+        console.error('处理订单数据失败:', orderError.message);
+        if (orderError.message.includes('订单号不匹配')) {
+          return res.json({ 
+            success: false, 
+            message: '扫描错误：订单号不匹配',
+            error_type: 'order_mismatch',
+            scanned_order: code.data
+          });
+        }
+        return res.json({ 
+          success: false, 
+          message: '处理订单数据失败: ' + orderError.message,
+          error_type: 'processing_error'
+        });
+      }
+      
+      // 只有在订单处理完全成功时才发送机器人消息
+      try {
+        await sendToWechatRobot(code.data);
+      } catch (error) {
+        console.error('发送消息到企业微信机器人时出错:', error);
+        // 即使发送失败，也继续返回成功，不影响用户体验
       }
       
       return res.json({ success: true, content: code.data });
@@ -327,6 +396,179 @@ async function sendToWechatRobot(content) {
   }
 }
 
+/**
+ * 从金蝶接口获取订单信息
+ * @param {string} orderNumber - 订单号
+ * @returns {Promise<Object|null>} 订单数据或null
+ */
+async function fetchOrderFromKingdee(orderNumber) {
+  try {
+    console.log('调用金蝶接口获取订单信息:', orderNumber);
+    
+    const response = await axios.get(`http://localhost:8000/kingdee/order/list?number=${orderNumber}`, {
+      timeout: 15000, // 15秒超时
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
+    });
+    
+    console.log('金蝶接口响应状态:', response.status);
+    console.log('金蝶接口响应头:', response.headers);
+    console.log('金蝶接口返回数据类型:', typeof response.data);
+    console.log('金蝶接口返回数据长度:', response.data ? response.data.length : 0);
+    
+    // 检查响应是否为HTML（错误页面）
+    if (typeof response.data === 'string' && response.data.includes('<html>')) {
+      console.error('金蝶接口返回HTML页面，可能是错误页面或接口不可用');
+      console.log('HTML内容前100字符:', response.data.substring(0, 100));
+      return null;
+    }
+    
+    // 检查是否为有效的JSON数据
+    if (response.status === 200 && response.data) {
+      // 如果返回的是字符串，尝试解析为JSON
+      let parsedData = response.data;
+      if (typeof response.data === 'string') {
+        try {
+          parsedData = JSON.parse(response.data);
+        } catch (parseError) {
+          console.error('解析JSON失败:', parseError.message);
+          console.log('原始数据:', response.data.substring(0, 200));
+          return null;
+        }
+      }
+      
+      console.log('成功获取订单数据:', JSON.stringify(parsedData, null, 2));
+      return parsedData;
+    } else {
+      console.log('金蝶接口返回失败，状态码:', response.status);
+      return null;
+    }
+  } catch (error) {
+    console.error('调用金蝶接口失败:', error.message);
+    if (error.response) {
+      console.error('错误响应状态:', error.response.status);
+      console.error('错误响应数据:', error.response.data);
+    }
+    return null;
+  }
+}
+
+/**
+ * 处理订单数据并保存到数据库
+ * @param {Array|Object} orderData - 从金蝶接口获取的订单数据（可能是数组或单个对象）
+ * @param {string} userid - 用户ID
+ * @returns {Promise<Array|Object|null>} 保存的订单记录或null
+ */
+/**
+ * 处理并保存金蝶订单数据
+ * @param {Array|Object} orderData - 金蝶接口返回的订单数据
+ * @param {string} userid - 用户ID
+ * @returns {Object|null} 保存的订单数据
+ */
+/**
+ * 处理并保存订单数据
+ * @param {Object|Array} orderData - 从金蝶接口获取的订单数据
+ * @param {string} userid - 用户ID
+ * @param {string} scannedOrderNumber - 扫描得到的订单号，用于校验
+ * @returns {Object|null} 保存的订单数据或null
+ */
+async function processAndSaveOrder(orderData, userid, scannedOrderNumber = null) {
+  try {
+    // 检查返回的数据格式
+    if (!orderData) {
+      console.log('订单数据为空');
+      return null;
+    }
+
+    // 校验扫描的订单号是否在接口返回的数据中存在
+    if (scannedOrderNumber) {
+      let orderNumberFound = false;
+      
+      if (Array.isArray(orderData)) {
+        // 如果是数组，检查第一条记录的订单号
+        if (orderData.length > 0) {
+          const firstItem = orderData[0];
+          const apiOrderNumber = firstItem.FBillNo || firstItem.order_number;
+          orderNumberFound = apiOrderNumber === scannedOrderNumber;
+        }
+      } else {
+        // 如果是单个对象，检查订单号
+        const apiOrderNumber = orderData.FBillNo || orderData.order_number;
+        orderNumberFound = apiOrderNumber === scannedOrderNumber;
+      }
+      
+      if (!orderNumberFound) {
+        console.log('扫描的订单号与接口返回的订单号不匹配:', scannedOrderNumber);
+        throw new Error('订单号不匹配：扫描的订单号在接口数据中不存在');
+      }
+    }
+
+    // 如果返回的是数组，将所有项作为一个订单的明细项处理
+    if (Array.isArray(orderData)) {
+      console.log('处理数组格式的订单数据，共', orderData.length, '条明细记录');
+      
+      if (orderData.length === 0) {
+        console.log('订单明细数组为空');
+        return null;
+      }
+      
+      // 使用第一条记录的订单头信息
+      const firstItem = orderData[0];
+      
+      // 计算订单总金额（所有明细项金额之和）
+      const totalAmount = orderData.reduce((sum, item) => {
+        return sum + parseFloat(item.FAmount || item.total_amount || 0);
+      }, 0);
+      
+      // 根据金蝶接口实际返回的字段进行映射
+      const salesOrderData = {
+        order_number: firstItem.FBillNo || 'N/A',
+        customer_name: firstItem['FCustId.FName'] || firstItem['FCustId.FShortName'] || firstItem.FCustName || 'N/A',
+        customer_code: firstItem['FCustId.FNumber'] || firstItem.FCustCode || 'N/A',
+        order_date: firstItem.FDate ? firstItem.FDate.split('T')[0] : new Date().toISOString().split('T')[0],
+        delivery_date: firstItem.FDeliveryDate ? firstItem.FDeliveryDate.split('T')[0] : null,
+        total_amount: totalAmount,
+        currency: firstItem.FCurrency || 'CNY',
+        status: firstItem.FDocumentStatus || firstItem.FStatus || 'pending',
+        items: orderData, // 将完整的明细项数组作为items保存
+        created_by: userid
+      };
+      
+      console.log('准备保存订单，订单号:', salesOrderData.order_number, '明细项数量:', orderData.length);
+      const savedOrder = await saveKingdeeOrder(salesOrderData);
+      console.log('金蝶订单已保存，包含', orderData.length, '条明细项');
+      return savedOrder;
+      
+    } else {
+      // 处理单个订单对象
+      const salesOrderData = {
+        order_number: orderData.FBillNo || 'N/A',
+        customer_name: orderData['FCustId.FName'] || orderData['FCustId.FShortName'] || orderData.FCustName || 'N/A',
+        customer_code: orderData['FCustId.FNumber'] || orderData.FCustCode || 'N/A',
+        order_date: orderData.FDate ? orderData.FDate.split('T')[0] : new Date().toISOString().split('T')[0],
+        delivery_date: orderData.FDeliveryDate ? orderData.FDeliveryDate.split('T')[0] : null,
+        total_amount: parseFloat(orderData.FAmount || orderData.total_amount || 0),
+        currency: orderData.FCurrency || 'CNY',
+        status: orderData.FDocumentStatus || orderData.FStatus || 'pending',
+        items: [orderData], // 将单个对象包装成数组作为items保存
+        created_by: userid
+      };
+      
+      const savedOrder = await saveKingdeeOrder(salesOrderData);
+      console.log('金蝶订单信息已保存到数据库:', savedOrder);
+      return savedOrder;
+    }
+  } catch (error) {
+    console.error('处理并保存订单数据失败:', error);
+    console.error('原始数据:', orderData);
+    // 重新抛出错误，让调用方能够正确处理
+    throw error;
+  }
+}
+
 // 处理微信扫码结果
 app.post('/save-scan-result', async (req, res) => {
   const { content } = req.body;
@@ -350,18 +592,61 @@ app.post('/save-scan-result', async (req, res) => {
     req.session.qrResults = req.session.qrResults.slice(0, 10);
   }
   
-  // 保存扫码记录到数据库
-  if (req.session.userInfo && req.session.userInfo.userid) {
-    try {
-      await recordScan(req.session.userInfo.userid, content);
-      console.log('微信扫码记录已保存到数据库');
-    } catch (dbError) {
-      console.error('保存微信扫码记录到数据库失败:', dbError);
-      // 数据库操作失败不影响用户体验，继续处理
-    }
+  // 检查用户登录状态
+  if (!req.session.userInfo || !req.session.userInfo.userid) {
+    return res.status(401).json({ success: false, message: '未登录' });
   }
   
-  // 发送消息到企业微信机器人
+  // 保存扫码记录到数据库
+  try {
+    await recordScan(req.session.userInfo.userid, content);
+    console.log('微信扫码记录已保存到数据库');
+  } catch (dbError) {
+    console.error('保存微信扫码记录到数据库失败:', dbError);
+    // 数据库操作失败不影响用户体验，继续处理
+  }
+  
+  // 根据订单号调用金蝶接口获取订单信息
+  const orderData = await fetchOrderFromKingdee(content);
+  if (!orderData) {
+    console.log('未能从金蝶接口获取到订单信息');
+    return res.json({ 
+      success: false, 
+      message: '扫描错误：订单不存在',
+      error_type: 'order_not_found',
+      scanned_order: content
+    });
+  }
+  
+  // 处理订单数据
+  try {
+    const savedOrder = await processAndSaveOrder(orderData, req.session.userInfo.userid, content);
+    if (!savedOrder) {
+      return res.json({ 
+        success: false, 
+        message: '订单处理失败',
+        error_type: 'processing_error'
+      });
+    }
+    console.log('订单信息获取并保存成功');
+  } catch (orderError) {
+    console.error('处理订单数据失败:', orderError.message);
+    if (orderError.message.includes('订单号不匹配')) {
+      return res.json({ 
+        success: false, 
+        message: '扫描错误：订单号不匹配',
+        error_type: 'order_mismatch',
+        scanned_order: content
+      });
+    }
+    return res.json({ 
+      success: false, 
+      message: '处理订单数据失败: ' + orderError.message,
+      error_type: 'processing_error'
+    });
+  }
+  
+  // 只有在订单处理完全成功时才发送消息到企业微信机器人
   try {
     await sendToWechatRobot(content);
   } catch (error) {
@@ -414,14 +699,7 @@ app.get('/admin', async (req, res) => {
     const offset = (page - 1) * pageSize;
     
     // 获取筛选参数
-    let userId = req.query.userId || '';
-    // 确保只使用userId部分作为查询条件（如果包含括号，提取括号中的内容）
-    // if (userId && userId.includes('(') && userId.includes(')')) {
-    //   const match = userId.match(/\(([^)]+)\)/);
-    //   if (match && match[1]) {
-    //     userId = match[1].trim();
-    //   }
-    // }
+    const userId = req.query.userId || '';
     const startDate = req.query.startDate || '';
     const endDate = req.query.endDate || '';
     const scanType = req.query.scanType || '';
@@ -464,14 +742,13 @@ app.get('/admin', async (req, res) => {
     
     // 查询记录
     const recordsQuery = `
-      SELECT sr.*, u.name as user_name 
+      SELECT sr.*, u.user_name 
       FROM wecom.scan_records sr 
-      LEFT JOIN (select distinct userid as user_id,name from wecom.user_records) u ON sr.userid = u.user_id 
+      LEFT JOIN (select distinct user_id,user_name from wecom.wework_users) u ON sr.userid = u.user_id 
       ${whereClause} 
       ORDER BY sr.scan_time DESC 
       LIMIT $${paramIndex++} OFFSET $${paramIndex++}
     `;
-    console.log(`输出信息${recordsQuery}`);
     const recordsParams = [...queryParams, pageSize, offset];
     const recordsResult = await db.pool.query(recordsQuery, recordsParams);
     
@@ -495,13 +772,26 @@ app.get('/admin', async (req, res) => {
     if (endDate) paginationQuery += `&endDate=${encodeURIComponent(endDate)}`;
     if (scanType) paginationQuery += `&scanType=${encodeURIComponent(scanType)}`;
     
+    // 计算分页显示范围
+    const maxPagesToShow = 5; // 最多显示5个页码
+    let startPage = Math.max(1, page - Math.floor(maxPagesToShow / 2));
+    let endPage = Math.min(totalPages, startPage + maxPagesToShow - 1);
+    
+    // 如果结束页码不足，调整开始页码
+    if (endPage - startPage + 1 < maxPagesToShow) {
+      startPage = Math.max(1, endPage - maxPagesToShow + 1);
+    }
+    
     // 渲染管理页面
     res.render('admin', {
       userInfo: req.session.userInfo,
       records: records,
       currentPage: page,
       totalPages: totalPages,
-      paginationQuery: paginationQuery,
+      totalRecords: totalRecords,
+      queryParams: paginationQuery,
+      startPage: startPage,
+      endPage: endPage,
       filters: {
         userId: userId,
         startDate: startDate,

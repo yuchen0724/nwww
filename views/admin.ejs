@@ -160,7 +160,11 @@
       <div class="row align-items-center">
         <div class="col-md-8">
           <% if (userInfo) { %>
-            <span class="text-success">✓ 已登录</span> - 欢迎，<strong><%= userInfo.name %></strong> (<%= userInfo.userid %>)
+            <span class="text-success">✓ 已登录</span> - 欢迎，<strong><%= userInfo.name %></strong>
+<% if (userInfo.department && userInfo.department.length > 0) { %>
+  (<%= Array.isArray(userInfo.department) ? userInfo.department.join(', ') : userInfo.department %>)
+<% } %>
+(<%= userInfo.userid %>)
           <% } else { %>
             <span class="text-danger">✗ 未登录</span>
           <% } %>
