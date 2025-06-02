@@ -150,25 +150,51 @@ app.get('/', async (req, res) => {
     let userScanRecords = [];
     try {
       const recordsQuery = `
-        SELECT sr.*, u.user_name 
+        SELECT sr.*, u.user_name, ko.items
         FROM wecom.scan_records sr 
         LEFT JOIN (select distinct user_id,user_name from wecom.wework_users) u ON sr.userid = u.user_id 
+        LEFT JOIN wecom.kingdee_orders ko ON sr.scan_result = ko.order_number
         WHERE sr.userid = $1 
         ORDER BY sr.scan_time DESC 
         LIMIT 10
       `;
       const recordsResult = await db.pool.query(recordsQuery, [userDetail.userid]);
       
-      // 处理记录，添加用户信息并格式化为与原qrResults相同的结构
-      userScanRecords = recordsResult.rows.map(record => ({
-        content: record.scan_result,
-        timestamp: record.scan_time.toLocaleString('zh-CN'),
-        type: record.scan_type,
-        status: record.status,
-        user: {
-          name: record.user_name
+      // 处理记录，添加用户信息、quantity信息并格式化为与原qrResults相同的结构
+      userScanRecords = recordsResult.rows.map(record => {
+        let totalQuantity = 0;
+        
+        // 从items字段中提取quantity信息
+        if (record.items) {
+          try {
+            const items = typeof record.items === 'string' ? JSON.parse(record.items) : record.items;
+            if (Array.isArray(items)) {
+              // 计算所有明细项的数量总和
+              totalQuantity = items.reduce((sum, item) => {
+                const qty = parseFloat(item.FQty || item.quantity || 0);
+                return sum + qty;
+              }, 0);
+            } else if (items.FQty || items.quantity) {
+              // 单个订单项
+              totalQuantity = parseFloat(items.FQty || items.quantity || 0);
+            }
+          } catch (error) {
+            console.error('解析订单items失败:', error);
+            totalQuantity = 0;
+          }
         }
-      }));
+        
+        return {
+          content: record.scan_result,
+          timestamp: record.scan_time.toLocaleString('zh-CN'),
+          type: record.scan_type,
+          status: record.status,
+          quantity: totalQuantity,
+          user: {
+            name: record.user_name
+          }
+        };
+      });
     } catch (dbError) {
       console.error('获取用户扫码记录失败:', dbError);
       // 获取记录失败不影响页面渲染，使用空数组
@@ -436,7 +462,7 @@ async function processAndSaveOrder(orderData, userid, scannedOrderNumber = null)
 
 // 处理微信扫码结果
 app.post('/save-scan-result', async (req, res) => {
-  const { content } = req.body;
+  const { content, scanType } = req.body;
   
   if (!content) {
     return res.json({ success: false, message: '未提供扫描内容' });
@@ -462,64 +488,75 @@ app.post('/save-scan-result', async (req, res) => {
     return res.status(401).json({ success: false, message: '未登录' });
   }
   
-  // 保存扫码记录到数据库
+  // 根据订单号调用金蝶接口获取订单信息
+  const orderData = await fetchOrderFromKingdee(content);
+  let scanStatus = '失败'; // 默认为失败状态
+  let responseData = { success: false };
+  
+  if (!orderData) {
+    console.log('未能从金蝶接口获取到订单信息');
+    scanStatus = '失败';
+    responseData = { 
+      success: false, 
+      message: '扫描错误：订单不存在',
+      error_type: 'order_not_found',
+      scanned_order: content
+    };
+  } else {
+    // 处理订单数据
+    try {
+      const savedOrder = await processAndSaveOrder(orderData, req.session.userInfo.userid, content);
+      if (!savedOrder) {
+        scanStatus = '失败';
+        responseData = { 
+          success: false, 
+          message: '订单处理失败',
+          error_type: 'processing_error'
+        };
+      } else {
+        console.log('订单信息获取并保存成功');
+        scanStatus = '成功'; // 订单匹配成功
+        responseData = { success: true };
+        
+        // 只有在订单处理完全成功时才发送消息到企业微信机器人
+        try {
+          await sendToWechatRobot(content);
+        } catch (error) {
+          console.error('发送消息到企业微信机器人时出错:', error);
+          // 即使发送失败，也继续返回成功，不影响用户体验
+        }
+      }
+    } catch (orderError) {
+      console.error('处理订单数据失败:', orderError.message);
+      scanStatus = '失败';
+      if (orderError.message.includes('订单号不匹配')) {
+        responseData = { 
+          success: false, 
+          message: '扫描错误：订单号不匹配',
+          error_type: 'order_mismatch',
+          scanned_order: content
+        };
+      } else {
+        responseData = { 
+          success: false, 
+          message: '处理订单数据失败: ' + orderError.message,
+          error_type: 'processing_error'
+        };
+      }
+    }
+  }
+  
+  // 保存扫码记录到数据库，根据订单匹配情况设置状态
   try {
-    await recordScan(req.session.userInfo.userid, content);
-    console.log('微信扫码记录已保存到数据库');
+    const finalScanType = scanType || 'qrcode'; // 如果前端没有传递scanType，默认为qrcode
+    await recordScan(req.session.userInfo.userid, content, scanStatus, finalScanType);
+    console.log(`微信扫码记录已保存到数据库，状态：${scanStatus}，类型：${finalScanType}`);
   } catch (dbError) {
     console.error('保存微信扫码记录到数据库失败:', dbError);
     // 数据库操作失败不影响用户体验，继续处理
   }
   
-  // 根据订单号调用金蝶接口获取订单信息
-  const orderData = await fetchOrderFromKingdee(content);
-  if (!orderData) {
-    console.log('未能从金蝶接口获取到订单信息');
-    return res.json({ 
-      success: false, 
-      message: '扫描错误：订单不存在',
-      error_type: 'order_not_found',
-      scanned_order: content
-    });
-  }
-  
-  // 处理订单数据
-  try {
-    const savedOrder = await processAndSaveOrder(orderData, req.session.userInfo.userid, content);
-    if (!savedOrder) {
-      return res.json({ 
-        success: false, 
-        message: '订单处理失败',
-        error_type: 'processing_error'
-      });
-    }
-    console.log('订单信息获取并保存成功');
-  } catch (orderError) {
-    console.error('处理订单数据失败:', orderError.message);
-    if (orderError.message.includes('订单号不匹配')) {
-      return res.json({ 
-        success: false, 
-        message: '扫描错误：订单号不匹配',
-        error_type: 'order_mismatch',
-        scanned_order: content
-      });
-    }
-    return res.json({ 
-      success: false, 
-      message: '处理订单数据失败: ' + orderError.message,
-      error_type: 'processing_error'
-    });
-  }
-  
-  // 只有在订单处理完全成功时才发送消息到企业微信机器人
-  try {
-    await sendToWechatRobot(content);
-  } catch (error) {
-    console.error('发送消息到企业微信机器人时出错:', error);
-    // 即使发送失败，也继续返回成功，不影响用户体验
-  }
-  
-  return res.json({ success: true });
+  return res.json(responseData);
 });
 
 // 获取用户扫码历史记录
@@ -568,6 +605,8 @@ app.get('/admin', async (req, res) => {
     const startDate = req.query.startDate || '';
     const endDate = req.query.endDate || '';
     const scanType = req.query.scanType || '';
+    // 默认筛选成功记录，除非明确指定其他状态或全部状态
+    const status = req.query.status !== undefined ? req.query.status : '成功';
     
     // 构建查询条件
     let queryConditions = [];
@@ -575,12 +614,12 @@ app.get('/admin', async (req, res) => {
     let paramIndex = 1;
     
     if (userId) {
-      queryConditions.push(`userid = $${paramIndex++}`);
+      queryConditions.push(`sr.userid = $${paramIndex++}`);
       queryParams.push(userId);
     }
     
     if (startDate) {
-      queryConditions.push(`scan_time >= $${paramIndex++}`);
+      queryConditions.push(`sr.scan_time >= $${paramIndex++}`);
       queryParams.push(new Date(startDate));
     }
     
@@ -588,28 +627,42 @@ app.get('/admin', async (req, res) => {
       // 将结束日期设置为当天的23:59:59
       const endDateTime = new Date(endDate);
       endDateTime.setHours(23, 59, 59, 999);
-      queryConditions.push(`scan_time <= $${paramIndex++}`);
+      queryConditions.push(`sr.scan_time <= $${paramIndex++}`);
       queryParams.push(endDateTime);
     }
     
     if (scanType) {
-      queryConditions.push(`scan_type = $${paramIndex++}`);
+      queryConditions.push(`sr.scan_type = $${paramIndex++}`);
       queryParams.push(scanType);
+    }
+    
+    if (status) {
+      // 支持中文和英文状态值
+      if (status === 'success') {
+        queryConditions.push(`(sr.status = $${paramIndex++} OR sr.status = $${paramIndex++})`);
+        queryParams.push('成功');
+        queryParams.push('success');
+      } else if (status === 'failed') {
+        queryConditions.push(`(sr.status = $${paramIndex++} OR sr.status = $${paramIndex++})`);
+        queryParams.push('失败');
+        queryParams.push('failed');
+      }
     }
     
     // 构建WHERE子句
     const whereClause = queryConditions.length > 0 ? `WHERE ${queryConditions.join(' AND ')}` : '';
     // 查询总记录数
-    const countQuery = `SELECT COUNT(*) FROM wecom.scan_records ${whereClause}`;
+    const countQuery = `SELECT COUNT(*) FROM wecom.scan_records sr ${whereClause}`;
     const countResult = await db.pool.query(countQuery, queryParams);
     const totalRecords = parseInt(countResult.rows[0].count);
     const totalPages = Math.ceil(totalRecords / pageSize);
     
-    // 查询记录
+    // 查询记录，关联kingdee_orders表获取quantity信息
     const recordsQuery = `
-      SELECT sr.*, u.user_name 
+      SELECT sr.*, u.user_name, ko.items
       FROM wecom.scan_records sr 
       LEFT JOIN (select distinct user_id,user_name from wecom.wework_users) u ON sr.userid = u.user_id 
+      LEFT JOIN wecom.kingdee_orders ko ON sr.scan_result = ko.order_number
       ${whereClause} 
       ORDER BY sr.scan_time DESC 
       LIMIT $${paramIndex++} OFFSET $${paramIndex++}
@@ -617,13 +670,36 @@ app.get('/admin', async (req, res) => {
     const recordsParams = [...queryParams, pageSize, offset];
     const recordsResult = await db.pool.query(recordsQuery, recordsParams);
     
-    // 处理记录，添加用户信息
+    // 处理记录，添加用户信息和quantity信息
     const records = recordsResult.rows.map(record => {
+      let totalQuantity = 0;
+      
+      // 从items字段中提取quantity信息
+      if (record.items) {
+        try {
+          const items = typeof record.items === 'string' ? JSON.parse(record.items) : record.items;
+          if (Array.isArray(items)) {
+            // 计算所有明细项的数量总和
+            totalQuantity = items.reduce((sum, item) => {
+              const qty = parseFloat(item.FQty || item.quantity || 0);
+              return sum + qty;
+            }, 0);
+          } else if (items.FQty || items.quantity) {
+            // 单个订单项
+            totalQuantity = parseFloat(items.FQty || items.quantity || 0);
+          }
+        } catch (error) {
+          console.error('解析订单items失败:', error);
+          totalQuantity = 0;
+        }
+      }
+      
       return {
         ...record,
         user: {
           name: record.user_name
-        }
+        },
+        quantity: totalQuantity
       };
     });
     
@@ -636,6 +712,7 @@ app.get('/admin', async (req, res) => {
     if (startDate) paginationQuery += `&startDate=${encodeURIComponent(startDate)}`;
     if (endDate) paginationQuery += `&endDate=${encodeURIComponent(endDate)}`;
     if (scanType) paginationQuery += `&scanType=${encodeURIComponent(scanType)}`;
+    if (status) paginationQuery += `&status=${encodeURIComponent(status)}`;
     
     // 计算分页显示范围
     const maxPagesToShow = 5; // 最多显示5个页码
@@ -661,7 +738,8 @@ app.get('/admin', async (req, res) => {
         userId: userId,
         startDate: startDate,
         endDate: endDate,
-        scanType: scanType
+        scanType: scanType,
+        status: status
       },
       usersList: usersList // 传递用户列表到模板
     });

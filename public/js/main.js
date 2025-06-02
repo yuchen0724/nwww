@@ -52,12 +52,18 @@ document.addEventListener('DOMContentLoaded', function() {
       // 调用微信扫一扫接口
       wx.scanQRCode({
         needResult: 1, // 默认为0，扫描结果由微信处理，1则直接返回扫描结果
-        scanType: ["qrCode", "barCode"], // 可以指定扫二维码还是条形码
+        scanType: ["qrCode", "barCode"], // 可以指定扫二维码还是一维码，默认二者都有
         success: function(res) {
           const result = res.resultStr; // 当needResult为1时，扫码返回的结果
+          const codeType = res.codeType; // 获取扫描码类型：QR_CODE 或 BARCODE
+
+          // 根据codeType字段判断扫描类型
+          const isBarCode = codeType === 'barcode';
+          const scanType = isBarCode ? 'barcode' : 'qrcode';
           
           // 显示扫描结果
-          showResult(`二维码内容: ${result}（已发送到企业微信机器人）`, 'success');
+          const scanTypeText = isBarCode ? '条形码' : '二维码';
+          showResult(`${scanTypeText}内容: ${result}（已发送到企业微信机器人）`, 'success');
           
           // 将扫描结果发送到服务器保存
           fetch('/save-scan-result', {
@@ -65,7 +71,10 @@ document.addEventListener('DOMContentLoaded', function() {
             headers: {
               'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ content: result })
+            body: JSON.stringify({ 
+              content: result,
+              scanType: scanType
+            })
           })
           .then(response => response.json())
           .then(data => {
@@ -91,21 +100,26 @@ document.addEventListener('DOMContentLoaded', function() {
                 resultsTable.appendChild(newRow);
               }
             } else {
-              console.error('保存扫描结果失败:', data.message);
+              console.error('保存扫描结果失败:', data ? data.message : 'unknown error');
               // 如果是订单不存在或订单号不匹配的错误，显示特定的错误提示
-              const orderInfo = data.scanned_order ? `（扫描订单号：${data.scanned_order}）` : '';
-
-              if (data.error_type === 'order_not_found') {
-                showResult(`订单不存在${orderInfo}`, 'danger');
-              } else if (data.error_type === 'order_mismatch') {
-                showResult(`订单号不匹配${orderInfo}`, 'danger');
+              if (data && data.error_type) {
+                const orderInfo = data.scanned_order ? `（扫描订单号：${data.scanned_order}）` : '';
+                
+                if (data.error_type === 'order_not_found') {
+                  showResult(`订单不存在${orderInfo}`, 'danger');
+                } else if (data.error_type === 'order_mismatch') {
+                  showResult(`订单号不匹配${orderInfo}`, 'danger');
+                } else {
+                  showResult('保存扫描结果失败: ' + data.error_type, 'danger');
+                }
               } else {
-                showResult('保存扫描结果失败: ' + data.error_type, 'danger');
+                showResult('保存扫描结果失败: ' + (data ? data.message || '未知错误' : '服务器响应异常'), 'danger');
               }
             }
           })
           .catch(error => {
             console.error('保存扫描结果出错:', error);
+            showResult('保存扫描结果失败: 网络错误', 'danger');
           });
         },
         fail: function(res) {

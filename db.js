@@ -63,14 +63,21 @@ async function saveWecomUser(wecomUserInfo) {
   }
 }
 
-// 记录扫码结果
-async function recordScan(userid, qrContent) {
+/**
+ * 记录扫码结果
+ * @param {string} userid - 用户ID
+ * @param {string} qrContent - 二维码内容
+ * @param {string} status - 扫码状态，默认为'成功'
+ * @param {string} scanType - 扫描类型，默认为'qrcode'
+ * @returns {Promise<Object>} 扫码记录
+ */
+async function recordScan(userid, qrContent, status = '成功', scanType = 'qrcode') {
   try {
     const scanRecord = {
       userid,
-      scan_type: 'qrcode',
+      scan_type: scanType,
       scan_result: qrContent,
-      status: 'success'
+      status: status
     };
     
     const record = await addScanRecord(scanRecord);
@@ -82,10 +89,13 @@ async function recordScan(userid, qrContent) {
   }
 }
 
-// 获取去重的用户ID和名称
+/**
+ * 获取去重的用户ID和名称
+ * @returns {Promise<Array>} 用户列表
+ */
 async function getDistinctUsers() {
   try {
-    const result = await pool.query('SELECT DISTINCT userid, name FROM wecom.user_records ORDER BY name');
+    const result = await pool.query('SELECT DISTINCT user_id as userid, user_name as name FROM wecom.wework_users ORDER BY user_name');
     return result.rows;
   } catch (err) {
     console.error('获取去重用户失败', err);
