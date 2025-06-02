@@ -604,7 +604,7 @@ app.get('/admin', async (req, res) => {
     const userId = req.query.userId || '';
     const startDate = req.query.startDate || '';
     const endDate = req.query.endDate || '';
-    const scanType = req.query.scanType || '';
+    const orderNumber = req.query.orderNumber || '';
     // 默认筛选成功记录，除非明确指定其他状态或全部状态
     const status = req.query.status !== undefined ? req.query.status : '成功';
     
@@ -631,9 +631,9 @@ app.get('/admin', async (req, res) => {
       queryParams.push(endDateTime);
     }
     
-    if (scanType) {
-      queryConditions.push(`sr.scan_type = $${paramIndex++}`);
-      queryParams.push(scanType);
+    if (orderNumber) {
+      queryConditions.push(`sr.scan_result ILIKE $${paramIndex++}`);
+      queryParams.push(`%${orderNumber}%`);
     }
     
     if (status) {
@@ -706,12 +706,22 @@ app.get('/admin', async (req, res) => {
     // 获取去重的用户列表，用于用户ID下拉框
     const usersList = await db.getDistinctUsers();
     
+    // 获取去重的订单号列表，用于订单号下拉框
+    const ordersListQuery = `
+      SELECT DISTINCT scan_result as order_number 
+      FROM wecom.scan_records 
+      WHERE scan_result IS NOT NULL AND scan_result != '' 
+      ORDER BY scan_result
+    `;
+    const ordersListResult = await db.pool.query(ordersListQuery);
+    const ordersList = ordersListResult.rows;
+    
     // 构建分页查询字符串
     let paginationQuery = '';
     if (userId) paginationQuery += `&userId=${encodeURIComponent(userId)}`;
     if (startDate) paginationQuery += `&startDate=${encodeURIComponent(startDate)}`;
     if (endDate) paginationQuery += `&endDate=${encodeURIComponent(endDate)}`;
-    if (scanType) paginationQuery += `&scanType=${encodeURIComponent(scanType)}`;
+    if (orderNumber) paginationQuery += `&orderNumber=${encodeURIComponent(orderNumber)}`;
     if (status) paginationQuery += `&status=${encodeURIComponent(status)}`;
     
     // 计算分页显示范围
@@ -738,10 +748,11 @@ app.get('/admin', async (req, res) => {
         userId: userId,
         startDate: startDate,
         endDate: endDate,
-        scanType: scanType,
+        orderNumber: orderNumber,
         status: status
       },
-      usersList: usersList // 传递用户列表到模板
+      usersList: usersList, // 传递用户列表到模板
+      ordersList: ordersList // 传递订单列表到模板
     });
   } catch (error) {
     console.error('获取扫码记录失败:', error);

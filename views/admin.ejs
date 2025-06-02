@@ -53,12 +53,19 @@
       min-width: 120px;
       text-align: center;
     }
-    /* 数量列样式 - 防止折行 */
+    /* 订单号列样式 - 增加宽度 */
+    .table th:nth-child(3),
+    .table td:nth-child(3) {
+      width: 140px;
+      min-width: 140px;
+      text-align: center;
+    }
+    /* 数量列样式 - 减小宽度 */
     .table th:nth-child(4),
     .table td:nth-child(4) {
       white-space: nowrap;
-      width: 80px;
-      min-width: 80px;
+      width: 60px;
+      min-width: 60px;
       text-align: center;
     }
     /* 状态列样式 - 美化显示 */
@@ -208,13 +215,25 @@
        .table th:nth-child(2),
        .table td:nth-child(2) {
          width: 100px;
-         min-width: 100px;
+         min-width: 50px;
+       }
+       /* 移动端订单号列优化 */
+       .table th:nth-child(3),
+       .table td:nth-child(3) {
+         width: 120px;
+         min-width: 120px;
+       }
+       /* 移动端数量列优化 */
+       .table th:nth-child(4),
+       .table td:nth-child(4) {
+         width: 50px;
+         min-width: 50px;
        }
        .time-date {
-         font-size: 0.75em;
+         font-size: 1em;
        }
        .time-clock {
-         font-size: 0.7em;
+         font-size: 0.85em;
        }
     }
     
@@ -233,6 +252,44 @@
       /* 确保下拉框不会导致布局问题 */
       select.form-select {
         padding-right: 25px;
+      }
+      /* 横屏模式下表格列宽度优化 */
+       /* 用户列 - 调整宽度以适应两行显示 */
+       .table th:nth-child(1),
+       .table td:nth-child(1) {
+         width: 120px;
+         min-width: 120px;
+       }
+       /* 横屏模式下用户信息布局优化 */
+        .table td:nth-child(1) .d-flex {
+          flex-direction: row;
+          align-items: center;
+        }
+        .table td:nth-child(1) .user-avatar {
+          margin-right: 8px;
+          margin-bottom: 0;
+          flex-shrink: 0;
+        }
+        .table td:nth-child(1) > div > div > div {
+          text-align: left;
+          line-height: 1.3;
+        }
+        .table td:nth-child(1) small.text-muted {
+          font-size: 0.75rem;
+          line-height: 1.2;
+          display: block;
+        }
+      /* 扫码时间列 - 增加宽度以适应单行显示 */
+      .table th:nth-child(2),
+      .table td:nth-child(2) {
+        width: 160px;
+        min-width: 160px;
+      }
+      /* 订单号列 - 增加宽度 */
+      .table th:nth-child(3),
+      .table td:nth-child(3) {
+        width: 180px;
+        min-width: 180px;
       }
     }
     .form-floating > .form-control-sm {
@@ -303,13 +360,13 @@
         <div>
           <i class="bi bi-funnel me-2"></i>
           <strong>筛选条件</strong>
-          <% if (filters.userId || filters.startDate || filters.endDate || filters.scanType || filters.status) { %>
+          <% if (filters.userId || filters.startDate || filters.endDate || filters.orderNumber || filters.status) { %>
             <span class="badge bg-primary ms-2">已筛选</span>
           <% } %>
         </div>
         <i class="bi bi-chevron-down"></i>
       </div>
-      <div class="collapse <%= (filters.userId || filters.startDate || filters.endDate || filters.scanType || filters.status) ? 'show' : '' %>" id="filterCollapse">
+      <div class="collapse <%= (filters.userId || filters.startDate || filters.endDate || filters.orderNumber || filters.status) ? 'show' : '' %>" id="filterCollapse">
         <div class="card-body">
           <form action="/admin" method="get">
             <div class="row g-2">
@@ -348,13 +405,16 @@
               </div>
               <div class="col-md-3 col-sm-6">
                 <div class="mb-2 row align-items-center">
-                  <label for="scanType" class="col-3 col-form-label">扫码类型</label>
+                  <label for="orderNumber" class="col-3 col-form-label">订单号</label>
                   <div class="col-9">
-                    <select class="form-select form-select-sm" id="scanType" name="scanType">
-                      <option value="">全部类型</option>
-                      <option value="qrcode" <%= filters.scanType === 'qrcode' ? 'selected' : '' %>>二维码</option>
-                      <option value="barcode" <%= filters.scanType === 'barcode' ? 'selected' : '' %>>条形码</option>
-                    </select>
+                    <input type="text" class="form-control form-control-sm" id="orderNumber" name="orderNumber" value="<%= filters.orderNumber || '' %>" list="orderNumberList" placeholder="输入或选择订单号">
+                    <datalist id="orderNumberList">
+                      <% if (ordersList && ordersList.length > 0) { %>
+                        <% ordersList.forEach(function(order) { %>
+                          <option value="<%= order.order_number %>">
+                        <% }); %>
+                      <% } %>
+                    </datalist>
                   </div>
                 </div>
               </div>
