@@ -10,17 +10,6 @@ const pool = new Pool({
   schema: 'wecom'
 });
 
-// 查询用户
-async function getUsers() {
-  try {
-    const result = await pool.query('SELECT * FROM wecom.user_records');
-    return result.rows;
-  } catch (err) {
-    console.error('获取用户失败', err);
-    throw err;
-  }
-}
-
 // 添加用户
 async function addUser(user) {
   try {
@@ -47,31 +36,6 @@ async function addScanRecord(record) {
     return result.rows[0];
   } catch (err) {
     console.error('添加扫码记录失败', err);
-    throw err;
-  }
-}
-
-// 获取配置
-async function getConfig(key) {
-  try {
-    const result = await pool.query('SELECT * FROM wecom.configs WHERE config_key = $1', [key]);
-    return result.rows[0];
-  } catch (err) {
-    console.error('获取配置失败', err);
-    throw err;
-  }
-}
-
-// 设置配置
-async function setConfig(key, value, description = '') {
-  try {
-    const result = await pool.query(
-      'INSERT INTO wecom.configs (config_key, config_value, description) VALUES ($1, $2, $3) ON CONFLICT (config_key) DO UPDATE SET config_value = $2, description = $3, updated_at = CURRENT_TIMESTAMP RETURNING *',
-      [key, value, description]
-    );
-    return result.rows[0];
-  } catch (err) {
-    console.error('设置配置失败', err);
     throw err;
   }
 }
@@ -226,11 +190,8 @@ async function saveKingdeeOrder(orderData) {
 
 module.exports = {
   pool,
-  getUsers,
   addUser,
   addScanRecord,
-  getConfig,
-  setConfig,
   saveWecomUser,
   recordScan,
   getDistinctUsers,

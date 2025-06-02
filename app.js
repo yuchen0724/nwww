@@ -2,10 +2,7 @@ const express = require('express');
 const session = require('express-session');
 const path = require('path');
 const axios = require('axios');
-const multer = require('multer');
 const fs = require('fs');
-const { createCanvas, loadImage } = require('canvas');
-const jsQR = require('jsqr');
 
 // 引入数据库模块
 const db = require('./db');
@@ -39,21 +36,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// 配置文件上传
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, path.join(__dirname, 'public/uploads'));
-  },
-  filename: function (req, file, cb) {
-    cb(null, Date.now() + path.extname(file.originalname));
-  }
-});
-const upload = multer({ storage: storage });
 
-// 确保上传目录存在
-if (!fs.existsSync(path.join(__dirname, 'public/uploads'))) {
-  fs.mkdirSync(path.join(__dirname, 'public/uploads'), { recursive: true });
-}
 
 // 获取访问令牌
 async function getAccessToken() {
@@ -114,14 +97,6 @@ async function getUserDetail(accessToken, userId) {
 app.get('/', async (req, res) => {
   const { code } = req.query;
   
-  // 如果已经登录，直接显示主页
-  if (req.session.userInfo) {
-    return res.render('index', { 
-      userInfo: req.session.userInfo,
-      qrResults: req.session.qrResults || []
-    });
-  }
-  
   // 如果有code参数，进行OAuth认证
   if (code) {
     const accessToken = await getAccessToken();
@@ -171,44 +146,37 @@ app.get('/', async (req, res) => {
     req.session.userInfo = userDetail;
     req.session.accessToken = accessToken;
     
-    // 从数据库获取用户的扫码历史记录
-    let dbScanRecords = [];
+    // 从数据库获取用户的最近10条扫码记录
+    let userScanRecords = [];
     try {
-      const result = await db.pool.query(
-        'SELECT * FROM wecom.scan_records WHERE userid = $1 ORDER BY scan_time DESC LIMIT 10',
-        [userDetail.userid]
-      );
-      dbScanRecords = result.rows.map(record => ({
+      const recordsQuery = `
+        SELECT sr.*, u.user_name 
+        FROM wecom.scan_records sr 
+        LEFT JOIN (select distinct user_id,user_name from wecom.wework_users) u ON sr.userid = u.user_id 
+        WHERE sr.userid = $1 
+        ORDER BY sr.scan_time DESC 
+        LIMIT 10
+      `;
+      const recordsResult = await db.pool.query(recordsQuery, [userDetail.userid]);
+      
+      // 处理记录，添加用户信息并格式化为与原qrResults相同的结构
+      userScanRecords = recordsResult.rows.map(record => ({
         content: record.scan_result,
         timestamp: record.scan_time.toLocaleString('zh-CN'),
         type: record.scan_type,
-        status: record.status
+        status: record.status,
+        user: {
+          name: record.user_name
+        }
       }));
     } catch (dbError) {
-      console.error('获取扫码历史记录失败:', dbError);
-      // 获取历史记录失败不影响页面渲染
+      console.error('获取用户扫码记录失败:', dbError);
+      // 获取记录失败不影响页面渲染，使用空数组
     }
-    
-    // 合并会话中的记录和数据库中的记录
-    const sessionRecords = req.session.qrResults || [];
-    const allRecords = [...sessionRecords];
-    
-    // 添加数据库记录，避免重复
-    dbScanRecords.forEach(dbRecord => {
-      // 检查是否已存在于会话记录中
-      const exists = allRecords.some(r => r.content === dbRecord.content);
-      if (!exists) {
-        allRecords.push(dbRecord);
-      }
-    });
-    
-    // 按时间排序并限制数量
-    allRecords.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-    const limitedRecords = allRecords.slice(0, 20);
-    
+
     return res.render('index', { 
       userInfo: userDetail,
-      qrResults: limitedRecords
+      qrResults: userScanRecords
     });
   }
   
@@ -225,110 +193,7 @@ app.get('/logout', (req, res) => {
   res.redirect('/');
 });
 
-// 处理二维码扫描
-app.post('/scan-qr', upload.single('qrImage'), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ success: false, message: '没有上传图片' });
-  }
-  
-  try {
-    const imagePath = req.file.path;
-    const image = await loadImage(imagePath);
-    const canvas = createCanvas(image.width, image.height);
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(image, 0, 0);
-    
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const code = jsQR(imageData.data, imageData.width, imageData.height);
-    
-    // 删除上传的图片
-    fs.unlinkSync(imagePath);
-    
-    if (code) {
-      // 保存扫描结果
-      if (!req.session.qrResults) {
-        req.session.qrResults = [];
-      }
-      req.session.qrResults.unshift({
-        content: code.data,
-        timestamp: new Date().toLocaleString('zh-CN')
-      });
-      
-      // 只保留最近10条记录
-      if (req.session.qrResults.length > 10) {
-        req.session.qrResults = req.session.qrResults.slice(0, 10);
-      }
-      
-      // 检查用户登录状态
-      if (!req.session.userInfo || !req.session.userInfo.userid) {
-        return res.status(401).json({ success: false, message: '未登录' });
-      }
-      
-      // 保存扫码记录到数据库
-      try {
-        await recordScan(req.session.userInfo.userid, code.data);
-      } catch (dbError) {
-        console.error('保存扫码记录到数据库失败:', dbError);
-        // 数据库操作失败不影响用户体验，继续处理
-      }
-      
-      // 根据订单号调用金蝶接口获取订单信息
-      const orderData = await fetchOrderFromKingdee(code.data);
-      if (!orderData) {
-        console.log('未能从金蝶接口获取到订单信息');
-        return res.json({ 
-          success: false, 
-          message: '扫描错误：订单不存在',
-          error_type: 'order_not_found',
-          scanned_order: code.data
-        });
-      }
-      
-      // 处理订单数据
-      try {
-        const savedOrder = await processAndSaveOrder(orderData, req.session.userInfo.userid, code.data);
-        if (!savedOrder) {
-          return res.json({ 
-            success: false, 
-            message: '订单处理失败',
-            error_type: 'processing_error'
-          });
-        }
-        console.log('订单信息获取并保存成功');
-      } catch (orderError) {
-        console.error('处理订单数据失败:', orderError.message);
-        if (orderError.message.includes('订单号不匹配')) {
-          return res.json({ 
-            success: false, 
-            message: '扫描错误：订单号不匹配',
-            error_type: 'order_mismatch',
-            scanned_order: code.data
-          });
-        }
-        return res.json({ 
-          success: false, 
-          message: '处理订单数据失败: ' + orderError.message,
-          error_type: 'processing_error'
-        });
-      }
-      
-      // 只有在订单处理完全成功时才发送机器人消息
-      try {
-        await sendToWechatRobot(code.data);
-      } catch (error) {
-        console.error('发送消息到企业微信机器人时出错:', error);
-        // 即使发送失败，也继续返回成功，不影响用户体验
-      }
-      
-      return res.json({ success: true, content: code.data });
-    } else {
-      return res.status(400).json({ success: false, message: '未能识别二维码' });
-    }
-  } catch (error) {
-    console.error('处理二维码出错:', error);
-    return res.status(500).json({ success: false, message: '处理二维码出错' });
-  }
-});
+
 
 // 获取JSAPI配置
 app.get('/get-jsapi-config', async (req, res) => {
