@@ -817,6 +817,49 @@ app.get('/admin-link', (req, res) => {
   res.redirect('/admin');
 });
 
+// 删除扫码记录接口
+app.post('/admin/delete-record', async (req, res) => {
+  try {
+    // 检查用户登录状态
+    if (!req.session.userInfo || !req.session.userInfo.userid) {
+      return res.status(401).json({ success: false, message: '未登录' });
+    }
+
+    const { recordId, userId, scanTime } = req.body;
+    
+    if (!recordId && (!userId || !scanTime)) {
+      return res.json({ success: false, message: '缺少必要的删除参数' });
+    }
+
+    // 构建删除条件
+    let deleteQuery;
+    let deleteParams;
+    
+    if (recordId) {
+      // 如果有recordId，直接根据ID删除
+      deleteQuery = 'DELETE FROM wecom.scan_records WHERE id = $1';
+      deleteParams = [recordId];
+    } else {
+      // 否则根据用户ID和扫码时间删除
+      deleteQuery = 'DELETE FROM wecom.scan_records WHERE user_id = $1 AND scan_time = $2';
+      deleteParams = [userId, scanTime];
+    }
+
+    const result = await db.pool.query(deleteQuery, deleteParams);
+    
+    if (result.rowCount > 0) {
+      console.log(`删除扫码记录成功，删除了 ${result.rowCount} 条记录`);
+      res.json({ success: true, message: '记录删除成功' });
+    } else {
+      res.json({ success: false, message: '未找到要删除的记录' });
+    }
+    
+  } catch (error) {
+    console.error('删除扫码记录失败:', error);
+    res.status(500).json({ success: false, message: '删除失败，请重试' });
+  }
+});
+
 app.listen(port, () => {
   console.log(`应用运行在 http://localhost:${port}`);
 });
