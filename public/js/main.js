@@ -79,26 +79,8 @@ document.addEventListener('DOMContentLoaded', function() {
           .then(response => response.json())
           .then(data => {
             if (data.success) {
-              // 添加到表格
-              const now = new Date().toLocaleString('zh-CN');
-              const newRow = document.createElement('tr');
-              newRow.innerHTML = `
-                <td>${now}</td>
-                <td>${result}</td>
-              `;
-              
-              // 如果表格中有"暂无扫描记录"的行，则移除它
-              const noRecordRow = resultsTable.querySelector('tr td[colspan="2"]');
-              if (noRecordRow) {
-                noRecordRow.parentElement.remove();
-              }
-              
-              // 添加到表格顶部
-              if (resultsTable.firstChild) {
-                resultsTable.insertBefore(newRow, resultsTable.firstChild);
-              } else {
-                resultsTable.appendChild(newRow);
-              }
+              // 重新从服务器获取最新的扫描记录数据
+              refreshScanResults();
             } else {
               console.error('保存扫描结果失败:', data ? data.message : 'unknown error');
               // 如果是订单不存在或订单号不匹配的错误，显示特定的错误提示
@@ -130,6 +112,61 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
   
+  /**
+   * 重新获取扫描记录数据并更新表格
+   * 从服务器获取最新的扫描记录并刷新页面表格显示
+   */
+  function refreshScanResults() {
+    console.log('开始刷新扫描记录...');
+    
+    fetch('/get-scan-results')
+      .then(response => {
+        console.log('获取扫描记录响应状态:', response.status);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+      })
+      .then(data => {
+        console.log('获取到的扫描记录数据:', data);
+        
+        if (data.success && data.results) {
+          // 清空现有表格内容
+          resultsTable.innerHTML = '';
+          
+          if (data.results.length > 0) {
+            console.log(`正在添加 ${data.results.length} 条扫描记录到表格`);
+            // 添加新的扫描记录
+            data.results.forEach(result => {
+              const newRow = document.createElement('tr');
+              newRow.innerHTML = `
+                <td>${result.timestamp}</td>
+                <td>${result.content}</td>
+                <td>
+                  ${result.quantity && result.quantity > 0 ? result.quantity : '<span class="text-muted">-</span>'}
+                </td>
+              `;
+              resultsTable.appendChild(newRow);
+            });
+            console.log('表格刷新完成');
+          } else {
+            // 显示暂无记录
+            const noRecordRow = document.createElement('tr');
+            noRecordRow.innerHTML = '<td colspan="3" class="text-center">暂无扫描记录</td>';
+            resultsTable.appendChild(noRecordRow);
+            console.log('显示暂无记录提示');
+          }
+        } else {
+          console.error('服务器返回数据格式错误:', data);
+        }
+      })
+      .catch(error => {
+        console.error('获取扫描记录失败:', error);
+        // 显示错误提示
+        showResult('刷新扫描记录失败，请重试', 'warning');
+      });
+  }
+
   function showResult(message, type) {
     scanResult.textContent = message;
     scanResult.style.display = 'block';

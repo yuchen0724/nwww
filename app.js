@@ -219,6 +219,68 @@ app.get('/logout', (req, res) => {
   res.redirect('/');
 });
 
+// 获取扫描记录API
+app.get('/get-scan-results', async (req, res) => {
+  // 检查用户登录状态
+  if (!req.session.userInfo || !req.session.userInfo.userid) {
+    return res.status(401).json({ success: false, message: '未登录' });
+  }
+
+  try {
+    const recordsQuery = `
+      SELECT sr.*, u.user_name, ko.items
+      FROM wecom.scan_records sr 
+      LEFT JOIN (select distinct user_id,user_name from wecom.wework_users) u ON sr.userid = u.user_id 
+      LEFT JOIN wecom.kingdee_orders ko ON sr.scan_result = ko.order_number
+      WHERE sr.userid = $1 
+      ORDER BY sr.scan_time DESC 
+      LIMIT 10
+    `;
+    const recordsResult = await db.pool.query(recordsQuery, [req.session.userInfo.userid]);
+    
+    // 处理记录，添加用户信息、quantity信息并格式化
+    const userScanRecords = recordsResult.rows.map(record => {
+      let totalQuantity = 0;
+      
+      // 从items字段中提取quantity信息
+      if (record.items) {
+        try {
+          const items = typeof record.items === 'string' ? JSON.parse(record.items) : record.items;
+          if (Array.isArray(items)) {
+            // 计算所有明细项的数量总和
+            totalQuantity = items.reduce((sum, item) => {
+              const qty = parseFloat(item.FQty || item.quantity || 0);
+              return sum + qty;
+            }, 0);
+          } else if (items.FQty || items.quantity) {
+            // 单个订单项
+            totalQuantity = parseFloat(items.FQty || items.quantity || 0);
+          }
+        } catch (error) {
+          console.error('解析订单items失败:', error);
+          totalQuantity = 0;
+        }
+      }
+      
+      return {
+        content: record.scan_result,
+        timestamp: record.scan_time.toLocaleString('zh-CN'),
+        type: record.scan_type,
+        status: record.status,
+        quantity: totalQuantity,
+        user: {
+          name: record.user_name
+        }
+      };
+    });
+
+    res.json({ success: true, results: userScanRecords });
+  } catch (error) {
+    console.error('获取扫描记录失败:', error);
+    res.status(500).json({ success: false, message: '获取扫描记录失败' });
+  }
+});
+
 
 
 // 获取JSAPI配置
@@ -468,20 +530,7 @@ app.post('/save-scan-result', async (req, res) => {
     return res.json({ success: false, message: '未提供扫描内容' });
   }
   
-  // 保存扫描结果
-  if (!req.session.qrResults) {
-    req.session.qrResults = [];
-  }
-  
-  req.session.qrResults.unshift({
-    content: content,
-    timestamp: new Date().toLocaleString('zh-CN')
-  });
-  
-  // 只保留最近10条记录
-  if (req.session.qrResults.length > 10) {
-    req.session.qrResults = req.session.qrResults.slice(0, 10);
-  }
+  // 注释：扫描结果将在数据库保存成功后通过重新查询获取，不再使用session存储
   
   // 检查用户登录状态
   if (!req.session.userInfo || !req.session.userInfo.userid) {
