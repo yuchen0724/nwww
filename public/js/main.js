@@ -97,6 +97,9 @@ document.addEventListener('DOMContentLoaded', function() {
               } else {
                 showResult('保存扫描结果失败: ' + (data ? data.message || '未知错误' : '服务器响应异常'), 'danger');
               }
+              
+              // 即使扫码失败，也要刷新表格显示最新的扫码记录
+              refreshScanResults();
             }
           })
           .catch(error => {

@@ -43,10 +43,17 @@
     .table td:first-child {
       width: 150px;
     }
-    /* 内容列自适应 */
-    .table th:last-child,
-    .table td:last-child {
+    /* 订单号列自适应 */
+    .table th:nth-child(2),
+    .table td:nth-child(2) {
       width: auto;
+    }
+    /* 数量列宽度固定，确保能显示至少3位数字 */
+    .table th:nth-child(3),
+    .table td:nth-child(3) {
+      width: 80px;
+      text-align: center;
+      min-width: 80px;
     }
   </style>
 </head>

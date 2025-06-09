@@ -38,20 +38,37 @@ app.use(express.urlencoded({ extended: true }));
 
 
 
+// 配置axios默认设置，解决SSL协议问题
+const https = require('https');
+const axiosConfig = {
+  httpsAgent: new https.Agent({
+    rejectUnauthorized: false, // 忽略SSL证书验证
+    secureProtocol: 'TLSv1_2_method' // 强制使用TLS 1.2
+  }),
+  timeout: 10000, // 10秒超时
+  proxy: false // 禁用代理
+};
+
 // 获取访问令牌
 async function getAccessToken() {
   try {
     const response = await axios.get(
-      `https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=${config.corpid}&corpsecret=${config.corpsecret}`
+      `https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=${config.corpid}&corpsecret=${config.corpsecret}`,
+      axiosConfig
     );
     if (response.data.errcode === 0) {
+      console.log('成功获取访问令牌');
       return response.data.access_token;
     } else {
       console.error('获取访问令牌失败:', response.data);
       return null;
     }
   } catch (error) {
-    console.error('获取访问令牌出错:', error);
+    console.error('获取访问令牌出错:', error.message);
+    // 如果是SSL错误，尝试使用HTTP（仅用于测试环境）
+    if (error.code === 'EPROTO' || error.code === 'CERT_HAS_EXPIRED') {
+      console.log('SSL错误，尝试其他解决方案...');
+    }
     return null;
   }
 }
@@ -60,7 +77,8 @@ async function getAccessToken() {
 async function getUserInfo(accessToken, code) {
   try {
     const response = await axios.get(
-      `https://qyapi.weixin.qq.com/cgi-bin/user/getuserinfo?access_token=${accessToken}&code=${code}`
+      `https://qyapi.weixin.qq.com/cgi-bin/user/getuserinfo?access_token=${accessToken}&code=${code}`,
+      axiosConfig
     );
     if (response.data.errcode === 0) {
       return response.data;
@@ -69,7 +87,7 @@ async function getUserInfo(accessToken, code) {
       return null;
     }
   } catch (error) {
-    console.error('获取用户信息出错:', error);
+    console.error('获取用户信息出错:', error.message);
     return null;
   }
 }
@@ -78,17 +96,18 @@ async function getUserInfo(accessToken, code) {
 async function getUserDetail(accessToken, userId) {
   try {
     const response = await axios.get(
-      `https://qyapi.weixin.qq.com/cgi-bin/user/get?access_token=${accessToken}&userid=${userId}`
+      `https://qyapi.weixin.qq.com/cgi-bin/user/get?access_token=${accessToken}&userid=${userId}`,
+      axiosConfig
     );
     if (response.data.errcode === 0) {
-      console.error('获取用户详细信息成功:', response.data);
+      console.log('获取用户详细信息成功:', response.data);
       return response.data;
     } else {
       console.error('获取用户详细信息失败:', response.data);
       return null;
     }
   } catch (error) {
-    console.error('获取用户详细信息出错:', error);
+    console.error('获取用户详细信息出错:', error.message);
     return null;
   }
 }
@@ -294,7 +313,8 @@ app.get('/get-jsapi-config', async (req, res) => {
     
     // 获取jsapi_ticket
     const ticketResponse = await axios.get(
-      `https://qyapi.weixin.qq.com/cgi-bin/get_jsapi_ticket?access_token=${accessToken}`
+      `https://qyapi.weixin.qq.com/cgi-bin/get_jsapi_ticket?access_token=${accessToken}`,
+      axiosConfig
     );
     
     if (ticketResponse.data.errcode !== 0) {
@@ -340,7 +360,7 @@ async function sendToWechatRobot(content) {
       }
     };
     
-    const response = await axios.post(webhookUrl, message);
+    const response = await axios.post(webhookUrl, message, axiosConfig);
     console.log('发送消息到企业微信机器人结果:', response.data);
     return response.data;
   } catch (error) {
@@ -515,8 +535,14 @@ async function processAndSaveOrder(orderData, userid, scannedOrderNumber = null)
       return savedOrder;
     }
   } catch (error) {
-    console.error('处理并保存订单数据失败:', error);
-    console.error('原始数据:', orderData);
+    if (error.message && error.message.includes('订单号不匹配')) {
+      // 订单号不匹配是正常的业务逻辑，只记录信息级别的日志
+      console.log('订单号不匹配:', error.message);
+    } else {
+      // 其他错误才记录为错误级别
+      console.error('处理并保存订单数据失败:', error);
+      console.error('原始数据:', orderData);
+    }
     // 重新抛出错误，让调用方能够正确处理
     throw error;
   }
@@ -576,9 +602,10 @@ app.post('/save-scan-result', async (req, res) => {
         }
       }
     } catch (orderError) {
-      console.error('处理订单数据失败:', orderError.message);
       scanStatus = '失败';
       if (orderError.message.includes('订单号不匹配')) {
+        // 订单号不匹配是正常的业务逻辑，只记录信息级别的日志
+        console.log('订单号不匹配:', orderError.message);
         responseData = { 
           success: false, 
           message: '扫描错误：订单号不匹配',
@@ -586,6 +613,8 @@ app.post('/save-scan-result', async (req, res) => {
           scanned_order: content
         };
       } else {
+        // 其他错误才记录为错误级别
+        console.error('处理订单数据失败:', orderError.message);
         responseData = { 
           success: false, 
           message: '处理订单数据失败: ' + orderError.message,
