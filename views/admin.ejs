@@ -65,18 +65,18 @@
       min-width: 100px;
       text-align: center;
     }
-    /* 时间列样式 - 允许折行显示 */
+    /* 时间列样式 - 减少宽度 */
     .table th:nth-child(3),
     .table td:nth-child(3) {
-      width: 120px;
-      min-width: 120px;
+      width: 100px;
+      min-width: 100px;
       text-align: center;
     }
     /* 订单号列样式 - 增加宽度 */
     .table th:nth-child(4),
     .table td:nth-child(4) {
-      width: 140px;
-      min-width: 140px;
+      width: 160px;
+      min-width: 160px;
       text-align: center;
     }
     /* 数量列样式 - 减小宽度 */
@@ -362,21 +362,27 @@
          min-width: 20px;
          text-align: left;
        }
-       /* 移动端时间列优化 */
+       /* 移动端岗位列优化 */
        .table th:nth-child(2),
        .table td:nth-child(2) {
          width: 40px;
          min-width: 40px;
        }
-       /* 移动端订单号列优化 */
+       /* 移动端时间列优化 */
        .table th:nth-child(3),
        .table td:nth-child(3) {
-         width: 120px;
-         min-width: 120px;
+         width: 80px;
+         min-width: 80px;
        }
-       /* 移动端数量列优化 */
+       /* 移动端订单号列优化 */
        .table th:nth-child(4),
        .table td:nth-child(4) {
+         width: 140px;
+         min-width: 140px;
+       }
+       /* 移动端数量列优化 */
+       .table th:nth-child(5),
+       .table td:nth-child(5) {
          width: 50px;
          min-width: 50px;
        }
@@ -638,10 +644,10 @@
                   </div>
                 </td>
                 <td>
-                  <% if (record.user && record.user.description) { %>
-                    <%= record.user.description %>
+                  <% if (record.user && record.user.positionWithCount) { %>
+                    <%= record.user.positionWithCount %>
                   <% } else { %>
-                    <span class="text-muted">-</span>
+                    <span class="text-muted">岗位(1)</span>
                   <% } %>
                 </td>
                 <td>

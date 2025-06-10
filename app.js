@@ -806,7 +806,7 @@ app.get('/admin', async (req, res) => {
     const recordsResult = await db.pool.query(recordsQuery, recordsParams);
     
     // 处理记录，添加用户信息和quantity信息
-    const records = recordsResult.rows.map(record => {
+    const records = await Promise.all(recordsResult.rows.map(async record => {
       let totalQuantity = 0;
       
       // 从items字段中提取quantity信息
@@ -829,15 +829,39 @@ app.get('/admin', async (req, res) => {
         }
       }
       
+      // 计算同一订单同一用户的扫描次数（当前记录是第几次扫描）
+      let scanCount = 1;
+      if (record.scan_result && record.userid) {
+        try {
+          const scanCountQuery = `
+            WITH ranked_scans AS (
+              SELECT id, ROW_NUMBER() OVER (ORDER BY scan_time ASC) as scan_order
+              FROM wecom.scan_records 
+              WHERE scan_result = $1 AND userid = $2
+            )
+            SELECT scan_order
+            FROM ranked_scans
+            WHERE id = $3
+          `;
+          const scanCountResult = await db.pool.query(scanCountQuery, [record.scan_result, record.userid, record.id]);
+          scanCount = parseInt(scanCountResult.rows[0]?.scan_order) || 1;
+        } catch (error) {
+          console.error('计算扫描次数失败:', error);
+          scanCount = 1;
+        }
+      }
+      
       return {
         ...record,
         user: {
           name: record.user_name,
-          description: record.description
+          description: record.description,
+          positionWithCount: record.description ? `${record.description}(${scanCount})` : `岗位(${scanCount})`
         },
-        quantity: totalQuantity
+        quantity: totalQuantity,
+        scanCount: scanCount
       };
-    });
+    }));
     
     // 获取去重的用户列表，用于用户ID下拉框
     const usersList = await db.getDistinctUsers();
