@@ -385,7 +385,18 @@ async function sendToWechatRobot(orderNumber) {
           
           // 根据实际数据库字段提取信息
           brandName = firstItem['F_BRANDID'] || '';
-          salesPerson = firstItem['FSalerId.FName'] || '';
+          
+          // 提取销售员信息，包含部门名称
+          const salesPersonName = firstItem['FSalerId.FName'] || '';
+          const salesDeptName = firstItem['FSaleDeptId.FName'] || '';
+          
+          // 如果有部门信息，则在销售员名字前添加部门名称
+          if (salesDeptName && salesPersonName) {
+            salesPerson = `${salesDeptName}-${salesPersonName}`;
+          } else {
+            salesPerson = salesPersonName;
+          }
+          
           deliveryMethod = firstItem['FHeadDeliveryWay.FDataValue'] || '';
         }
       } catch (e) {
