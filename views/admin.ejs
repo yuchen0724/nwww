@@ -58,31 +58,38 @@
       min-width: 120px;
       text-align: left;
     }
-    /* 时间列样式 - 允许折行显示 */
+    /* 岗位列样式 - 新增列 */
     .table th:nth-child(2),
     .table td:nth-child(2) {
+      width: 100px;
+      min-width: 100px;
+      text-align: center;
+    }
+    /* 时间列样式 - 允许折行显示 */
+    .table th:nth-child(3),
+    .table td:nth-child(3) {
       width: 120px;
       min-width: 120px;
       text-align: center;
     }
     /* 订单号列样式 - 增加宽度 */
-    .table th:nth-child(3),
-    .table td:nth-child(3) {
+    .table th:nth-child(4),
+    .table td:nth-child(4) {
       width: 140px;
       min-width: 140px;
       text-align: center;
     }
     /* 数量列样式 - 减小宽度 */
-    .table th:nth-child(4),
-    .table td:nth-child(4) {
+    .table th:nth-child(5),
+    .table td:nth-child(5) {
       white-space: nowrap;
       width: 60px;
       min-width: 60px;
       text-align: center;
     }
     /* 状态列样式 - 美化显示 */
-    .table th:nth-child(5),
-    .table td:nth-child(5) {
+    .table th:nth-child(6),
+    .table td:nth-child(6) {
       white-space: nowrap;
       width: 80px;
       min-width: 80px;
@@ -351,15 +358,15 @@
        /* 移动端用户列优化 */
        .table th:nth-child(1),
        .table td:nth-child(1) {
-         width: 80px;
-         min-width: 80px;
+         width: 20px;
+         min-width: 20px;
          text-align: left;
        }
        /* 移动端时间列优化 */
        .table th:nth-child(2),
        .table td:nth-child(2) {
-         width: 100px;
-         min-width: 50px;
+         width: 40px;
+         min-width: 40px;
        }
        /* 移动端订单号列优化 */
        .table th:nth-child(3),
@@ -604,6 +611,7 @@
         <thead class="table-dark">
           <tr>
             <th class="sortable" data-column="user">用户</th>
+            <th class="sortable" data-column="position">岗位</th>
             <th class="sortable" data-column="time">扫码时间</th>
             <th class="sortable" data-column="order">订单号</th>
             <th class="sortable" data-column="quantity">数量</th>
@@ -628,6 +636,13 @@
                       <small class="text-muted"><%= record.userid %></small>
                     <% } %>
                   </div>
+                </td>
+                <td>
+                  <% if (record.user && record.user.description) { %>
+                    <%= record.user.description %>
+                  <% } else { %>
+                    <span class="text-muted">-</span>
+                  <% } %>
                 </td>
                 <td>
                   <div class="time-display">
@@ -656,7 +671,7 @@
             <% }); %>
           <% } else { %>
             <tr>
-              <td colspan="5" class="text-center py-4">暂无扫码记录</td>
+              <td colspan="6" class="text-center py-4">暂无扫码记录</td>
             </tr>
           <% } %>
         </tbody>

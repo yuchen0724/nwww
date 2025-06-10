@@ -169,9 +169,9 @@ app.get('/', async (req, res) => {
     let userScanRecords = [];
     try {
       const recordsQuery = `
-        SELECT sr.*, u.user_name, ko.items
+        SELECT sr.*, u.user_name,u.description, ko.items
         FROM wecom.scan_records sr 
-        LEFT JOIN (select distinct user_id,user_name from wecom.wework_users) u ON sr.userid = u.user_id 
+        LEFT JOIN wecom.user_op u ON sr.userid = u.user_id 
         LEFT JOIN wecom.kingdee_orders ko ON sr.scan_result = ko.order_number
         WHERE sr.userid = $1 
         ORDER BY sr.scan_time DESC 
@@ -247,9 +247,9 @@ app.get('/get-scan-results', async (req, res) => {
 
   try {
     const recordsQuery = `
-      SELECT sr.*, u.user_name, ko.items
+      SELECT sr.*, u.user_name,u.description, ko.items
       FROM wecom.scan_records sr 
-      LEFT JOIN (select distinct user_id,user_name from wecom.wework_users) u ON sr.userid = u.user_id 
+      LEFT JOIN wecom.user_op u ON sr.userid = u.user_id 
       LEFT JOIN wecom.kingdee_orders ko ON sr.scan_result = ko.order_number
       WHERE sr.userid = $1 
       ORDER BY sr.scan_time DESC 
@@ -349,14 +349,60 @@ app.get('/get-jsapi-config', async (req, res) => {
   }
 });
 
-// 发送消息到企业微信机器人
-async function sendToWechatRobot(content) {
+/**
+ * 发送消息到企业微信机器人
+ * @param {string} orderNumber - 订单号
+ * @returns {Promise<Object|null>} 发送结果
+ */
+async function sendToWechatRobot(orderNumber) {
   try {
     const webhookUrl = 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=87229630-c634-4f68-8169-2b8cb9c65494';
+    
+    // 从数据库查询订单信息
+    const orderQuery = `
+      SELECT order_number, customer_name, total_amount, currency, 
+             order_date, delivery_date, status, items
+      FROM wecom.kingdee_orders 
+      WHERE order_number = $1
+    `;
+    
+    const orderResult = await db.pool.query(orderQuery, [orderNumber]);
+    
+    let messageContent;
+    if (orderResult.rows.length > 0) {
+      const order = orderResult.rows[0];
+      
+      // 解析商品信息和其他订单详情
+      let brandName = '';
+      let salesPerson = '';
+      let deliveryMethod = '';
+      
+      try {
+        const items = order.items;
+        if (Array.isArray(items) && items.length > 0) {
+          // 获取第一个商品的信息作为主要商品
+          const firstItem = items[0];
+          
+          // 根据实际数据库字段提取信息
+          brandName = firstItem['F_BRANDID'] || '';
+          salesPerson = firstItem['FSalerId.FName'] || '';
+          deliveryMethod = firstItem['FHeadDeliveryWay.FDataValue'] || '';
+        }
+      } catch (e) {
+        console.error('解析订单明细失败:', e);
+      }
+      
+      // 格式化消息内容为markdown样式，固定内容黑色，动态内容彩色
+      messageContent = `您有新的订单流转，请相关同事关注\n\n订单编号: <font color="#FF8C00">${order.order_number}</font>\n\n商户名称: <font color="#32CD32">${order.customer_name || ''}</font>\n\n配送方式: <font color="#32CD32">${deliveryMethod}</font>\n\n品牌: <font color="#32CD32">${brandName}</font>\n\n销售员: <font color="#32CD32">${salesPerson}</font>`;
+    } else {
+      // 如果数据库中没有找到订单信息，返回基本格式但不包含硬编码数据
+      messageContent = `您有新的订单流转，请相关同事关注\n\n订单编号: <font color="#FF8C00">${orderNumber}</font>\n\n商户名称: \n\n配送方式: \n\n品牌: \n\n销售员: `;
+    }
+    
     const message = {
-      msgtype: 'text',
-      text: {
-        content: `扫描结果: ${content}`
+      msgtype: 'markdown',
+      markdown: {
+        content: messageContent
       }
     };
     
@@ -737,9 +783,9 @@ app.get('/admin', async (req, res) => {
     
     // 查询记录，关联kingdee_orders表获取quantity信息
     const recordsQuery = `
-      SELECT sr.*, u.user_name, ko.items
+      SELECT sr.*, u.user_name,u.description, ko.items
       FROM wecom.scan_records sr 
-      LEFT JOIN (select distinct user_id,user_name from wecom.wework_users) u ON sr.userid = u.user_id 
+      LEFT JOIN wecom.user_op u ON sr.userid = u.user_id 
       LEFT JOIN wecom.kingdee_orders ko ON sr.scan_result = ko.order_number
       ${whereClause} 
       ORDER BY sr.scan_time DESC 
@@ -775,7 +821,8 @@ app.get('/admin', async (req, res) => {
       return {
         ...record,
         user: {
-          name: record.user_name
+          name: record.user_name,
+          description: record.description
         },
         quantity: totalQuantity
       };
