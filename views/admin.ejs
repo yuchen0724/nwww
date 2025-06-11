@@ -644,10 +644,12 @@
                   </div>
                 </td>
                 <td>
-                  <% if (record.user && record.user.positionWithCount) { %>
+                  <% if (record.user && record.user.description) { %>
+                    <%= record.user.description %>(<%= record.scanStatus || '开始' %>)
+                  <% } else if (record.user && record.user.positionWithCount) { %>
                     <%= record.user.positionWithCount %>
                   <% } else { %>
-                    <span class="text-muted">岗位(1)</span>
+                    <span class="text-muted">未知岗位(开始)</span>
                   <% } %>
                 </td>
                 <td>

@@ -180,7 +180,7 @@ app.get('/', async (req, res) => {
       const recordsResult = await db.pool.query(recordsQuery, [userDetail.userid]);
       
       // 处理记录，添加用户信息、quantity信息并格式化为与原qrResults相同的结构
-      userScanRecords = recordsResult.rows.map(record => {
+      userScanRecords = await Promise.all(recordsResult.rows.map(async record => {
         let totalQuantity = 0;
         
         // 从items字段中提取quantity信息
@@ -203,17 +203,58 @@ app.get('/', async (req, res) => {
           }
         }
         
+        // 计算同一订单同一用户的扫描次数和总次数
+        let scanCount = 1;
+        let totalScans = 1;
+        if (record.scan_result && userDetail.userid) {
+          try {
+            // 获取当前记录的扫描顺序和总扫描次数
+            const scanCountQuery = `
+              WITH ranked_scans AS (
+                SELECT id, ROW_NUMBER() OVER (ORDER BY scan_time ASC) as scan_order,
+                       COUNT(*) OVER() as total_scans
+                FROM wecom.scan_records 
+                WHERE scan_result = $1 AND userid = $2
+              )
+              SELECT scan_order, total_scans
+              FROM ranked_scans
+              WHERE id = $3
+            `;
+            const scanCountResult = await db.pool.query(scanCountQuery, [record.scan_result, userDetail.userid, record.id]);
+            if (scanCountResult.rows.length > 0) {
+              scanCount = parseInt(scanCountResult.rows[0].scan_order) || 1;
+              totalScans = parseInt(scanCountResult.rows[0].total_scans) || 1;
+            }
+          } catch (error) {
+            console.error('计算扫描次数失败:', error);
+            scanCount = 1;
+            totalScans = 1;
+          }
+        }
+        
+        // 构建状态信息：岗位名+扫描状态
+         const positionName = record.description || '岗位';
+         let scanStatus;
+         if (scanCount === 1) {
+           scanStatus = '(开始)';
+         } else if (scanCount === totalScans) {
+           scanStatus = '(结束)';
+         } else {
+           scanStatus = `(${scanCount})`;
+         }
+         const statusInfo = `${positionName}${scanStatus}`;
+        
         return {
           content: record.scan_result,
           timestamp: record.scan_time.toLocaleString('zh-CN'),
           type: record.scan_type,
-          status: record.status,
+          status: statusInfo,
           quantity: totalQuantity,
           user: {
             name: record.user_name
           }
         };
-      });
+      }));
     } catch (dbError) {
       console.error('获取用户扫码记录失败:', dbError);
       // 获取记录失败不影响页面渲染，使用空数组
@@ -829,26 +870,43 @@ app.get('/admin', async (req, res) => {
         }
       }
       
-      // 计算同一订单同一用户的扫描次数（当前记录是第几次扫描）
+      // 计算同一订单同一用户的扫描次数和总次数
       let scanCount = 1;
+      let totalScans = 1;
       if (record.scan_result && record.userid) {
         try {
+          // 获取当前记录的扫描顺序和总扫描次数
           const scanCountQuery = `
             WITH ranked_scans AS (
-              SELECT id, ROW_NUMBER() OVER (ORDER BY scan_time ASC) as scan_order
+              SELECT id, ROW_NUMBER() OVER (ORDER BY scan_time ASC) as scan_order,
+                     COUNT(*) OVER() as total_scans
               FROM wecom.scan_records 
               WHERE scan_result = $1 AND userid = $2
             )
-            SELECT scan_order
+            SELECT scan_order, total_scans
             FROM ranked_scans
             WHERE id = $3
           `;
           const scanCountResult = await db.pool.query(scanCountQuery, [record.scan_result, record.userid, record.id]);
-          scanCount = parseInt(scanCountResult.rows[0]?.scan_order) || 1;
+          if (scanCountResult.rows.length > 0) {
+            scanCount = parseInt(scanCountResult.rows[0].scan_order) || 1;
+            totalScans = parseInt(scanCountResult.rows[0].total_scans) || 1;
+          }
         } catch (error) {
           console.error('计算扫描次数失败:', error);
           scanCount = 1;
+          totalScans = 1;
         }
+      }
+      
+      // 构建扫描状态显示
+      let scanStatus;
+      if (scanCount === 1) {
+        scanStatus = '开始';
+      } else if (scanCount === totalScans) {
+        scanStatus = '结束';
+      } else {
+        scanStatus = scanCount.toString();
       }
       
       return {
@@ -856,10 +914,11 @@ app.get('/admin', async (req, res) => {
         user: {
           name: record.user_name,
           description: record.description,
-          positionWithCount: record.description ? `${record.description}(${scanCount})` : `岗位(${scanCount})`
+          positionWithCount: record.description ? `${record.description}(${scanStatus})` : `岗位(${scanStatus})`
         },
         quantity: totalQuantity,
-        scanCount: scanCount
+        scanCount: scanCount,
+        scanStatus: scanStatus
       };
     }));
     
