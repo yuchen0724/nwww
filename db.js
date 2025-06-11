@@ -95,7 +95,7 @@ async function recordScan(userid, qrContent, status = '成功', scanType = 'qrco
  */
 async function getDistinctUsers() {
   try {
-    const result = await pool.query('SELECT DISTINCT user_id as userid, user_name as name FROM wecom.wework_users ORDER BY user_name');
+    const result = await pool.query('SELECT user_id as userid, user_name as name FROM wecom.wework_users ORDER BY user_name COLLATE "zh-x-icu"');
     return result.rows;
   } catch (err) {
     console.error('获取去重用户失败', err);

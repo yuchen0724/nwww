@@ -518,13 +518,13 @@
         <div>
           <i class="bi bi-funnel me-2"></i>
           <strong>筛选条件</strong>
-          <% if (filters.userId || filters.startDate || filters.endDate || filters.orderNumber || filters.status) { %>
+          <% if (filters.userId || filters.startDate || filters.endDate || filters.orderNumber || filters.status || filters.isValid) { %>
             <span class="badge bg-primary ms-2">已筛选</span>
           <% } %>
         </div>
         <i class="bi bi-chevron-down"></i>
       </div>
-      <div class="collapse <%= (filters.userId || filters.startDate || filters.endDate || filters.orderNumber || filters.status) ? 'show' : '' %>" id="filterCollapse">
+      <div class="collapse <%= (filters.userId || filters.startDate || filters.endDate || filters.orderNumber || filters.status || filters.isValid) ? 'show' : '' %>" id="filterCollapse">
         <div class="card-body">
           <form action="/admin" method="get">
             <div class="row g-2">
@@ -532,16 +532,14 @@
                 <div class="mb-2 row align-items-center">
                   <label for="userId" class="col-3 col-form-label">用户ID</label>
                   <div class="col-9">
-                    <select class="form-select form-select-sm" id="userId" name="userId">
-                      <option value="">全部用户</option>
+                    <input type="text" class="form-control form-control-sm" id="userId" name="userId" value="<%= filters.userId || '' %>" list="userIdList" placeholder="输入或选择用户">
+                    <datalist id="userIdList">
                       <% if (usersList && usersList.length > 0) { %>
                         <% usersList.forEach(function(user) { %>
-                          <option value="<%= user.userid %>" <%= filters.userId === user.userid ? 'selected' : '' %>>
-                            <%= user.name %> (<%= user.userid %>)
-                          </option>
+                          <option value="<%= user.userid %>"> <%= user.name %> </option>
                         <% }); %>
                       <% } %>
-                    </select>
+                    </datalist>
                   </div>
                 </div>
               </div>
@@ -582,9 +580,21 @@
                   <div class="col-9">
                     <select class="form-select form-select-sm" id="status" name="status">
                       <option value="">全部状态</option>
-                      <option value="success" <%= (filters.status === 'success' || (!filters.status && !Object.keys(filters).some(key => filters[key]))) ? 'selected' : '' %>>成功</option>
+                      <option value="success" <%= (!filters.status || filters.status === 'success') ? 'selected' : '' %>>成功</option>
                       <option value="failed" <%= filters.status === 'failed' ? 'selected' : '' %>>失败</option>
                     </select>
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-3 col-sm-6">
+                <div class="mb-2 row align-items-center">
+                  <label for="isValid" class="col-3 col-form-label">是否有效</label>
+                  <div class="col-9">
+                    <select class="form-select form-select-sm" id="isValid" name="isValid">
+                       <option value="">全部</option>
+                       <option value="valid" <%= (!filters.isValid || filters.isValid === 'valid') ? 'selected' : '' %>>有效</option>
+                       <option value="invalid" <%= filters.isValid === 'invalid' ? 'selected' : '' %>>无效</option>
+                     </select>
                   </div>
                 </div>
               </div>

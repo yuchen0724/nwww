@@ -146,6 +146,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 <td>${result.timestamp}</td>
                 <td>${result.content}</td>
                 <td>
+                  ${result.status ? result.status : '<span class="text-muted">-</span>'}
+                </td>
+                <td>
                   ${result.quantity && result.quantity > 0 ? result.quantity : '<span class="text-muted">-</span>'}
                 </td>
               `;
@@ -155,7 +158,7 @@ document.addEventListener('DOMContentLoaded', function() {
           } else {
             // 显示暂无记录
             const noRecordRow = document.createElement('tr');
-            noRecordRow.innerHTML = '<td colspan="3" class="text-center">暂无扫描记录</td>';
+            noRecordRow.innerHTML = '<td colspan="4" class="text-center">暂无扫描记录</td>';
             resultsTable.appendChild(noRecordRow);
             console.log('显示暂无记录提示');
           }

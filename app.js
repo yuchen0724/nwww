@@ -298,8 +298,8 @@ app.get('/get-scan-results', async (req, res) => {
     `;
     const recordsResult = await db.pool.query(recordsQuery, [req.session.userInfo.userid]);
     
-    // 处理记录，添加用户信息、quantity信息并格式化
-    const userScanRecords = recordsResult.rows.map(record => {
+    // 处理记录，添加用户信息、quantity信息并格式化为与原qrResults相同的结构
+    const userScanRecords = await Promise.all(recordsResult.rows.map(async record => {
       let totalQuantity = 0;
       
       // 从items字段中提取quantity信息
@@ -322,17 +322,58 @@ app.get('/get-scan-results', async (req, res) => {
         }
       }
       
+      // 计算同一订单同一用户的扫描次数和总次数
+      let scanCount = 1;
+      let totalScans = 1;
+      if (record.scan_result && req.session.userInfo.userid) {
+        try {
+          // 获取当前记录的扫描顺序和总扫描次数
+          const scanCountQuery = `
+            WITH ranked_scans AS (
+              SELECT id, ROW_NUMBER() OVER (ORDER BY scan_time ASC) as scan_order,
+                     COUNT(*) OVER() as total_scans
+              FROM wecom.scan_records 
+              WHERE scan_result = $1 AND userid = $2
+            )
+            SELECT scan_order, total_scans
+            FROM ranked_scans
+            WHERE id = $3
+          `;
+          const scanCountResult = await db.pool.query(scanCountQuery, [record.scan_result, req.session.userInfo.userid, record.id]);
+          if (scanCountResult.rows.length > 0) {
+            scanCount = parseInt(scanCountResult.rows[0].scan_order) || 1;
+            totalScans = parseInt(scanCountResult.rows[0].total_scans) || 1;
+          }
+        } catch (error) {
+          console.error('计算扫描次数失败:', error);
+          scanCount = 1;
+          totalScans = 1;
+        }
+      }
+      
+      // 构建状态信息：岗位名+扫描状态
+      const positionName = record.description || '岗位';
+      let scanStatus;
+      if (scanCount === 1) {
+        scanStatus = '(开始)';
+      } else if (scanCount === totalScans) {
+        scanStatus = '(结束)';
+      } else {
+        scanStatus = `(${scanCount})`;
+      }
+      const statusInfo = `${positionName}${scanStatus}`;
+      
       return {
         content: record.scan_result,
         timestamp: record.scan_time.toLocaleString('zh-CN'),
         type: record.scan_type,
-        status: record.status,
+        status: statusInfo,
         quantity: totalQuantity,
         user: {
           name: record.user_name
         }
       };
-    });
+    }));
 
     res.json({ success: true, results: userScanRecords });
   } catch (error) {
@@ -409,6 +450,58 @@ async function sendToWechatRobot(orderNumber) {
     
     const orderResult = await db.pool.query(orderQuery, [orderNumber]);
     
+    // 查询流转岗位信息 - 通过订单号和扫码时间获取最新的岗位信息，包含扫描次数
+    const positionQuery = `
+      SELECT COALESCE(u.description, '岗位') as description, sr.userid, sr.scan_time, sr.id
+      FROM wecom.scan_records sr 
+      LEFT JOIN wecom.user_op u ON sr.userid = u.user_id 
+      WHERE sr.scan_result = $1 
+      ORDER BY sr.scan_time DESC 
+      LIMIT 1
+    `;
+    
+    const positionResult = await db.pool.query(positionQuery, [orderNumber]);
+    let currentPositionWithCount = '';
+    
+    if (positionResult.rows.length > 0) {
+      const latestRecord = positionResult.rows[0];
+      const positionName = latestRecord.description;
+      
+      // 查询该用户对该订单的扫描次数和总扫描次数（与/get-scan-results API保持一致的计算逻辑）
+      const scanCountQuery = `
+        WITH ranked_scans AS (
+          SELECT id, ROW_NUMBER() OVER (ORDER BY scan_time ASC) as scan_order,
+                 COUNT(*) OVER() as total_scans
+          FROM wecom.scan_records 
+          WHERE scan_result = $1 AND userid = $2
+        )
+        SELECT scan_order, total_scans
+        FROM ranked_scans
+        WHERE id = $3
+      `;
+      
+      const scanCountResult = await db.pool.query(scanCountQuery, [orderNumber, latestRecord.userid, latestRecord.id]);
+      
+      if (scanCountResult.rows.length > 0) {
+        const scanCount = parseInt(scanCountResult.rows[0].scan_order) || 1;
+        const totalScans = parseInt(scanCountResult.rows[0].total_scans) || 1;
+        
+        // 构建状态信息：岗位名+扫描状态
+        let scanStatus;
+        if (scanCount === 1) {
+          scanStatus = '(开始)';
+        } else if (scanCount === totalScans) {
+          scanStatus = '(结束)';
+        } else {
+          scanStatus = `(${scanCount})`;
+        }
+        
+        currentPositionWithCount = `${positionName}${scanStatus}`;
+      } else {
+        currentPositionWithCount = positionName;
+      }
+    }
+    
     let messageContent;
     if (orderResult.rows.length > 0) {
       const order = orderResult.rows[0];
@@ -444,11 +537,11 @@ async function sendToWechatRobot(orderNumber) {
         console.error('解析订单明细失败:', e);
       }
       
-      // 格式化消息内容为markdown样式，固定内容黑色，动态内容彩色
-      messageContent = `您有新的订单流转，请相关同事关注\n\n订单编号: <font color="#FF8C00">${order.order_number}</font>\n\n商户名称: <font color="#32CD32">${order.customer_name || ''}</font>\n\n配送方式: <font color="#32CD32">${deliveryMethod}</font>\n\n品牌: <font color="#32CD32">${brandName}</font>\n\n销售员: <font color="#32CD32">${salesPerson}</font>`;
+      // 格式化消息内容为markdown样式，固定内容黑色，动态内容彩色，增加流转岗位字段
+      messageContent = `您有新的订单流转，请相关同事关注\n\n订单编号: <font color="#FF8C00">${order.order_number}</font>\n\n商户名称: <font color="#32CD32">${order.customer_name || ''}</font>\n\n配送方式: <font color="#32CD32">${deliveryMethod}</font>\n\n品牌: <font color="#32CD32">${brandName}</font>\n\n销售员: <font color="#32CD32">${salesPerson}</font>\n\n流转岗位: <font color="#32CD32">${currentPositionWithCount}</font>`;
     } else {
       // 如果数据库中没有找到订单信息，返回基本格式但不包含硬编码数据
-      messageContent = `您有新的订单流转，请相关同事关注\n\n订单编号: <font color="#FF8C00">${orderNumber}</font>\n\n商户名称: \n\n配送方式: \n\n品牌: \n\n销售员: `;
+      messageContent = `您有新的订单流转，请相关同事关注\n\n订单编号: <font color="#FF8C00">${orderNumber}</font>\n\n商户名称: \n\n配送方式: \n\n品牌: \n\n销售员: \n\n流转岗位: <font color="#32CD32">${currentPositionWithCount}</font>`;
     }
     
     const message = {
@@ -782,7 +875,8 @@ app.get('/admin', async (req, res) => {
     const endDate = req.query.endDate || '';
     const orderNumber = req.query.orderNumber || '';
     // 默认筛选成功记录，除非明确指定其他状态或全部状态
-    const status = req.query.status !== undefined ? req.query.status : '成功';
+    const status = req.query.status !== undefined ? req.query.status : 'success';
+    const isValid = req.query.isValid !== undefined ? req.query.isValid : 'valid';
     
     // 构建查询条件
     let queryConditions = [];
@@ -790,8 +884,17 @@ app.get('/admin', async (req, res) => {
     let paramIndex = 1;
     
     if (userId) {
-      queryConditions.push(`sr.userid = $${paramIndex++}`);
-      queryParams.push(userId);
+      // 支持按用户ID或用户名进行模糊查找
+      queryConditions.push(`(
+        sr.userid ILIKE $${paramIndex++} 
+        OR EXISTS (
+          SELECT 1 FROM wecom.user_op u3 
+          WHERE u3.user_id = sr.userid 
+          AND u3.user_name ILIKE $${paramIndex++}
+        )
+      )`);
+      queryParams.push(`%${userId}%`);
+      queryParams.push(`%${userId}%`);
     }
     
     if (startDate) {
@@ -822,6 +925,74 @@ app.get('/admin', async (req, res) => {
         queryConditions.push(`(sr.status = $${paramIndex++} OR sr.status = $${paramIndex++})`);
         queryParams.push('失败');
         queryParams.push('failed');
+      }
+    }
+    
+    // 处理是否有效筛选
+    if (isValid) {
+      if (isValid === 'valid') {
+        // 有效：扫描次数为'开始'或'结束'的数据，且用户岗位不为空
+        // 需要通过子查询来判断是否为第一次或最后一次扫描，并且用户有岗位信息
+        queryConditions.push(`(
+          (
+            sr.id IN (
+              SELECT DISTINCT first_scan.id
+              FROM (
+                SELECT id, scan_result, userid,
+                       ROW_NUMBER() OVER (PARTITION BY scan_result, userid ORDER BY scan_time ASC) as first_rank
+                FROM wecom.scan_records
+              ) first_scan
+              WHERE first_scan.first_rank = 1
+            )
+            OR
+            sr.id IN (
+              SELECT DISTINCT last_scan.id
+              FROM (
+                SELECT id, scan_result, userid,
+                       ROW_NUMBER() OVER (PARTITION BY scan_result, userid ORDER BY scan_time DESC) as last_rank
+                FROM wecom.scan_records
+              ) last_scan
+              WHERE last_scan.last_rank = 1
+            )
+          )
+          AND EXISTS (
+            SELECT 1 FROM wecom.user_op u2 
+            WHERE u2.user_id = sr.userid 
+            AND u2.description IS NOT NULL 
+            AND u2.description != ''
+          )
+        )`);
+      } else if (isValid === 'invalid') {
+        // 无效：不是第一次也不是最后一次扫描的数据，或者用户岗位为空
+        queryConditions.push(`(
+          (
+            sr.id NOT IN (
+              SELECT DISTINCT first_scan.id
+              FROM (
+                SELECT id, scan_result, userid,
+                       ROW_NUMBER() OVER (PARTITION BY scan_result, userid ORDER BY scan_time ASC) as first_rank
+                FROM wecom.scan_records
+              ) first_scan
+              WHERE first_scan.first_rank = 1
+            )
+            AND
+            sr.id NOT IN (
+              SELECT DISTINCT last_scan.id
+              FROM (
+                SELECT id, scan_result, userid,
+                       ROW_NUMBER() OVER (PARTITION BY scan_result, userid ORDER BY scan_time DESC) as last_rank
+                FROM wecom.scan_records
+              ) last_scan
+              WHERE last_scan.last_rank = 1
+            )
+          )
+          OR NOT EXISTS (
+            SELECT 1 FROM wecom.user_op u2 
+            WHERE u2.user_id = sr.userid 
+            AND u2.description IS NOT NULL 
+            AND u2.description != ''
+          )
+        )`);
       }
     }
     
@@ -942,6 +1113,7 @@ app.get('/admin', async (req, res) => {
     if (endDate) paginationQuery += `&endDate=${encodeURIComponent(endDate)}`;
     if (orderNumber) paginationQuery += `&orderNumber=${encodeURIComponent(orderNumber)}`;
     if (status) paginationQuery += `&status=${encodeURIComponent(status)}`;
+    if (isValid) paginationQuery += `&isValid=${encodeURIComponent(isValid)}`;
     
     // 计算分页显示范围
     const maxPagesToShow = 5; // 最多显示5个页码
@@ -968,7 +1140,8 @@ app.get('/admin', async (req, res) => {
         startDate: startDate,
         endDate: endDate,
         orderNumber: orderNumber,
-        status: status
+        status: status,
+        isValid: isValid
       },
       usersList: usersList, // 传递用户列表到模板
       ordersList: ordersList // 传递订单列表到模板
