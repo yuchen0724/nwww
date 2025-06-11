@@ -874,9 +874,13 @@ app.get('/admin', async (req, res) => {
     const startDate = req.query.startDate || '';
     const endDate = req.query.endDate || '';
     const orderNumber = req.query.orderNumber || '';
-    // 默认筛选成功记录，除非明确指定其他状态或全部状态
-    const status = req.query.status !== undefined ? req.query.status : 'success';
-    const isValid = req.query.isValid !== undefined ? req.query.isValid : 'valid';
+    
+    // 检查是否有任何筛选参数，如果没有则使用默认值，否则保持用户选择
+    const hasAnyFilter = req.query.userId || req.query.startDate || req.query.endDate || req.query.orderNumber || req.query.status !== undefined || req.query.isValid !== undefined;
+    
+    // 只有在首次访问（没有任何筛选参数）时才使用默认值
+    const status = hasAnyFilter ? (req.query.status || '') : 'success';
+    const isValid = hasAnyFilter ? (req.query.isValid || '') : 'valid';
     
     // 构建查询条件
     let queryConditions = [];
@@ -957,9 +961,7 @@ app.get('/admin', async (req, res) => {
           )
           AND EXISTS (
             SELECT 1 FROM wecom.user_op u2 
-            WHERE u2.user_id = sr.userid 
-            AND u2.description IS NOT NULL 
-            AND u2.description != ''
+            WHERE u2.user_id = sr.userid
           )
         )`);
       } else if (isValid === 'invalid') {
@@ -988,9 +990,7 @@ app.get('/admin', async (req, res) => {
           )
           OR NOT EXISTS (
             SELECT 1 FROM wecom.user_op u2 
-            WHERE u2.user_id = sr.userid 
-            AND u2.description IS NOT NULL 
-            AND u2.description != ''
+            WHERE u2.user_id = sr.userid
           )
         )`);
       }
