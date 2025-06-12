@@ -1160,12 +1160,77 @@ app.get('/admin-link', (req, res) => {
   res.redirect('/admin');
 });
 
+/**
+ * 检查用户是否有删除权限
+ * @param {string} userId - 用户ID
+ * @returns {Promise<boolean>} 是否有删除权限
+ */
+async function checkDeletePermission(userId) {
+  try {
+    // 获取删除权限配置
+    const configResult = await db.pool.query(
+      'SELECT config_value FROM wecom.configs WHERE config_key = $1',
+      ['delete']
+    );
+    
+    if (configResult.rows.length === 0) {
+      console.log('未找到删除权限配置');
+      return false;
+    }
+    
+    const permissionRegex = configResult.rows[0].config_value;
+    console.log('删除权限正则表达式:', permissionRegex);
+    
+    // 获取用户信息
+    const userResult = await db.pool.query(
+      'SELECT user_name FROM wecom.wework_users WHERE user_id = $1',
+      [userId]
+    );
+    
+    if (userResult.rows.length === 0) {
+      console.log('未找到用户信息:', userId);
+      return false;
+    }
+    
+    const userName = userResult.rows[0].user_name;
+    console.log('检查用户权限:', userId, userName);
+    
+    // 获取用户岗位信息
+    const positionResult = await db.pool.query(
+      'SELECT description FROM wecom.user_op WHERE user_id = $1',
+      [userId]
+    );
+    
+    const userPosition = positionResult.rows.length > 0 ? positionResult.rows[0].description : '';
+    console.log('用户岗位:', userPosition);
+    
+    // 创建正则表达式对象
+    const regex = new RegExp(permissionRegex);
+    
+    // 检查用户ID、用户名或岗位是否匹配权限正则
+    const hasPermission = regex.test(userId) || regex.test(userName) || (userPosition && regex.test(userPosition));
+    
+    console.log('权限检查结果:', hasPermission);
+    return hasPermission;
+    
+  } catch (error) {
+    console.error('检查删除权限失败:', error);
+    return false;
+  }
+}
+
 // 删除扫码记录接口
 app.post('/admin/delete-record', async (req, res) => {
   try {
     // 检查用户登录状态
     if (!req.session.userInfo || !req.session.userInfo.userid) {
       return res.status(401).json({ success: false, message: '未登录' });
+    }
+
+    // 检查删除权限
+    const hasDeletePermission = await checkDeletePermission(req.session.userInfo.userid);
+    if (!hasDeletePermission) {
+      return res.status(403).json({ success: false, message: '您没有删除权限' });
     }
 
     const { recordId, userId, scanTime } = req.body;
@@ -1200,6 +1265,29 @@ app.post('/admin/delete-record', async (req, res) => {
   } catch (error) {
     console.error('删除扫码记录失败:', error);
     res.status(500).json({ success: false, message: '删除失败，请重试' });
+  }
+});
+
+// 检查删除权限接口
+app.get('/admin/check-delete-permission', async (req, res) => {
+  try {
+    // 检查用户登录状态
+    if (!req.session.userInfo || !req.session.userInfo.userid) {
+      return res.status(401).json({ success: false, message: '未登录' });
+    }
+
+    // 检查删除权限
+    const hasDeletePermission = await checkDeletePermission(req.session.userInfo.userid);
+    
+    res.json({ 
+      success: true, 
+      hasPermission: hasDeletePermission,
+      userId: req.session.userInfo.userid
+    });
+    
+  } catch (error) {
+    console.error('检查删除权限失败:', error);
+    res.status(500).json({ success: false, message: '检查权限失败' });
   }
 });
 

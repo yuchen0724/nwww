@@ -756,10 +756,35 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
   <script>
     /**
+     * 检查当前用户是否有删除权限
+     * @returns {Promise<boolean>} 是否有删除权限
+     */
+    async function checkUserDeletePermission() {
+      try {
+        const response = await fetch('/admin/check-delete-permission', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        const result = await response.json();
+        return result.hasPermission || false;
+      } catch (error) {
+        console.error('检查删除权限失败:', error);
+        return false;
+      }
+    }
+
+    /**
      * 表格排序功能
      * 支持按用户、时间、订单号、数量、状态进行排序
      */
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', async function() {
+      // 检查用户删除权限
+      const hasDeletePermission = await checkUserDeletePermission();
+      console.log('用户删除权限:', hasDeletePermission);
+      
       const table = document.querySelector('.table');
       const tbody = table.querySelector('tbody');
       const headers = table.querySelectorAll('.sortable');
@@ -882,7 +907,7 @@
             isSwiping = true;
             e.preventDefault();
             
-            if (deltaX > 10) { // 左滑
+            if (deltaX > 10 && hasDeletePermission) { // 左滑且有删除权限
               // 先恢复其他行的状态
               recordRows.forEach(r => {
                 if (r !== this) {
