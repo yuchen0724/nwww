@@ -28,10 +28,10 @@ async function addUser(user) {
 // 记录扫码
 async function addScanRecord(record) {
   try {
-    const { userid, scan_type, scan_result, status } = record;
+    const { userid, scan_type, scan_result, status, position } = record;
     const result = await pool.query(
-      'INSERT INTO wecom.scan_records (userid, scan_type, scan_result, status) VALUES ($1, $2, $3, $4) RETURNING *',
-      [userid, scan_type, scan_result, status]
+      'INSERT INTO wecom.scan_records (userid, scan_type, scan_result, status, position) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [userid, scan_type, scan_result, status, position]
     );
     return result.rows[0];
   } catch (err) {
@@ -64,20 +64,36 @@ async function saveWecomUser(wecomUserInfo) {
 }
 
 /**
- * 记录扫码结果
+ * 记录扫码信息
  * @param {string} userid - 用户ID
  * @param {string} qrContent - 二维码内容
- * @param {string} status - 扫码状态，默认为'成功'
+ * @param {string} status - 扫描状态，默认为'成功'
  * @param {string} scanType - 扫描类型，默认为'qrcode'
  * @returns {Promise<Object>} 扫码记录
  */
 async function recordScan(userid, qrContent, status = '成功', scanType = 'qrcode') {
   try {
+    // 从user_op表获取用户的岗位信息(description字段)
+    let userPosition = null;
+    try {
+      const userResult = await pool.query(
+        'SELECT description FROM wecom.user_op WHERE user_id = $1 LIMIT 1',
+        [userid]
+      );
+      if (userResult.rows.length > 0 && userResult.rows[0].description) {
+        userPosition = userResult.rows[0].description;
+      }
+    } catch (positionError) {
+      console.error('获取用户岗位信息失败:', positionError);
+      // 获取岗位信息失败不影响扫码记录保存，继续处理
+    }
+    
     const scanRecord = {
       userid,
       scan_type: scanType,
       scan_result: qrContent,
-      status: status
+      status: status,
+      position: userPosition
     };
     
     const record = await addScanRecord(scanRecord);

@@ -111,6 +111,7 @@ CREATE TABLE wecom.scan_records (
     scan_result TEXT NOT NULL,
     status VARCHAR(20) DEFAULT '成功',
     quantity INTEGER DEFAULT 0,
+    position VARCHAR(100),
     scan_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
