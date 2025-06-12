@@ -536,7 +536,7 @@
                     <datalist id="userIdList">
                       <% if (usersList && usersList.length > 0) { %>
                         <% usersList.forEach(function(user) { %>
-                          <option value="<%= user.userid %>"><%= user.name %></option>
+                          <option value="<%= user.name %> (<%= user.userid %>)" label="<%= user.name %> (<%= user.userid %>)"></option>
                         <% }); %>
                       <% } %>
                     </datalist>
@@ -1146,30 +1146,46 @@
         }, 3000);
       }
 
-      // 移动端检测和用户选择器切换
+      /**
+       * 初始化用户选择器 - 移动端和PC端都使用input+datalist支持模糊输入
+       */
       function initMobileUserSelector() {
-        // 更精确的移动端检测：只有真正的移动设备才使用select
-        const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-        const isSmallScreen = window.innerWidth <= 768;
-        const isMobile = isMobileDevice && isSmallScreen;
-        
         const userInput = document.getElementById('userId');
         const userSelect = document.getElementById('userIdSelect');
-        const datalist = document.getElementById('userIdList');
         
-        if (isMobile) {
-          // 移动端：隐藏input+datalist，显示select
-          userInput.style.display = 'none';
-          userSelect.classList.remove('d-none');
-          
-          // 同步select的值到隐藏的input
-          userSelect.addEventListener('change', function() {
-            userInput.value = this.value;
+        // 移动端和PC端都使用input+datalist，隐藏select备用方案
+        userInput.style.display = 'block';
+        userSelect.classList.add('d-none');
+        
+        // 为移动端优化input体验
+        const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        if (isMobileDevice) {
+          // 移动端优化：添加触摸友好的样式
+          userInput.style.fontSize = '16px'; // 防止iOS缩放
+          userInput.style.minHeight = '44px'; // 增加触摸区域
+        }
+        
+        // 添加input事件监听器，从选择的值中提取用户ID
+        userInput.addEventListener('input', function() {
+          const selectedValue = this.value;
+          // 检查是否包含用户ID格式 (userid)
+          const match = selectedValue.match(/\(([^)]+)\)$/);
+          if (match && match[1]) {
+            // 找到了用户ID，将其设置为实际提交值
+            this.setAttribute('data-userid', match[1]);
+          }
+        });
+        
+        // 添加表单提交事件监听器，确保提交用户ID而不是显示文本
+        const form = userInput.closest('form');
+        if (form) {
+          form.addEventListener('submit', function(e) {
+            const userIdInput = document.getElementById('userId');
+            const userId = userIdInput.getAttribute('data-userid');
+            if (userId) {
+              userIdInput.value = userId;
+            }
           });
-        } else {
-          // 桌面端：显示input+datalist，隐藏select
-          userInput.style.display = 'block';
-          userSelect.classList.add('d-none');
         }
       }
       
