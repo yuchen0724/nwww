@@ -451,11 +451,13 @@ async function sendToWechatRobot(orderNumber) {
     
     const orderResult = await db.pool.query(orderQuery, [orderNumber]);
     
-    // 查询流转岗位信息 - 通过订单号和扫码时间获取最新的岗位信息，包含扫描次数
+    // 查询流转岗位信息 - 通过订单号和扫码时间获取最新的岗位信息，包含扫描次数和扫码人信息
     const positionQuery = `
-      SELECT COALESCE(u.description, '岗位') as description, sr.userid, sr.scan_time, sr.id
+      SELECT COALESCE(u.description, '岗位') as description, sr.userid, sr.scan_time, sr.id,
+             COALESCE(wu.user_name, sr.userid) as scanner_name
       FROM wecom.scan_records sr 
       LEFT JOIN wecom.user_op u ON sr.userid = u.user_id 
+      LEFT JOIN wecom.wework_users wu ON sr.userid = wu.user_id
       WHERE sr.scan_result = $1 
       ORDER BY sr.scan_time DESC 
       LIMIT 1
@@ -463,35 +465,51 @@ async function sendToWechatRobot(orderNumber) {
     
     const positionResult = await db.pool.query(positionQuery, [orderNumber]);
     let currentPositionWithCount = '';
+    let scannerName = '';
+    let totalScanCount = 0;
+    let productQuantity = 0;
     
     if (positionResult.rows.length > 0) {
       const latestRecord = positionResult.rows[0];
       const positionName = latestRecord.description;
+      // 格式化扫码人为：姓名(ID)
+      const userName = latestRecord.scanner_name || latestRecord.userid;
+      scannerName = userName !== latestRecord.userid ? `${userName}(${latestRecord.userid})` : latestRecord.userid;
       
-      // 查询该用户对该订单的扫描次数和总扫描次数（与/get-scan-results API保持一致的计算逻辑）
-      const scanCountQuery = `
+      // 查询该订单的总扫描次数（所有用户的扫描次数）
+      const totalScanQuery = `
+        SELECT COUNT(*) as total_scans
+        FROM wecom.scan_records 
+        WHERE scan_result = $1
+      `;
+      
+      const totalScanResult = await db.pool.query(totalScanQuery, [orderNumber]);
+      totalScanCount = parseInt(totalScanResult.rows[0]?.total_scans) || 1;
+      
+      // 查询该用户对该订单的扫描次数（用于状态显示）
+      const userScanCountQuery = `
         WITH ranked_scans AS (
           SELECT id, ROW_NUMBER() OVER (ORDER BY scan_time ASC) as scan_order,
-                 COUNT(*) OVER() as total_scans
+                 COUNT(*) OVER() as user_total_scans
           FROM wecom.scan_records 
           WHERE scan_result = $1 AND userid = $2
         )
-        SELECT scan_order, total_scans
+        SELECT scan_order, user_total_scans
         FROM ranked_scans
         WHERE id = $3
       `;
       
-      const scanCountResult = await db.pool.query(scanCountQuery, [orderNumber, latestRecord.userid, latestRecord.id]);
+      const userScanCountResult = await db.pool.query(userScanCountQuery, [orderNumber, latestRecord.userid, latestRecord.id]);
       
-      if (scanCountResult.rows.length > 0) {
-        const scanCount = parseInt(scanCountResult.rows[0].scan_order) || 1;
-        const totalScans = parseInt(scanCountResult.rows[0].total_scans) || 1;
+      if (userScanCountResult.rows.length > 0) {
+        const scanCount = parseInt(userScanCountResult.rows[0].scan_order) || 1;
+        const userTotalScans = parseInt(userScanCountResult.rows[0].user_total_scans) || 1;
         
         // 构建状态信息：岗位名+扫描状态
         let scanStatus;
         if (scanCount === 1) {
           scanStatus = '(开始)';
-        } else if (scanCount === totalScans) {
+        } else if (scanCount === userTotalScans) {
           scanStatus = '(结束)';
         } else {
           scanStatus = `(${scanCount})`;
@@ -511,6 +529,26 @@ async function sendToWechatRobot(orderNumber) {
       let brandName = '';
       let salesPerson = '';
       let deliveryMethod = '';
+      
+      // 计算商品总数量
+      try {
+        const items = order.items;
+        if (Array.isArray(items) && items.length > 0) {
+          // 计算所有明细项的数量总和
+          productQuantity = items.reduce((sum, item) => {
+            const qty = parseFloat(item.FQty || item.quantity || 0);
+            return sum + qty;
+          }, 0);
+        } else if (items && (items.FQty || items.quantity)) {
+          // 如果items不是数组，直接取其数量
+          productQuantity = parseFloat(items.FQty || items.quantity || 0);
+        } else {
+          productQuantity = 0;
+        }
+      } catch (e) {
+        console.error('解析商品数量失败:', e);
+        productQuantity = 0;
+      }
       
       try {
         const items = order.items;
@@ -538,11 +576,11 @@ async function sendToWechatRobot(orderNumber) {
         console.error('解析订单明细失败:', e);
       }
       
-      // 格式化消息内容为markdown样式，固定内容黑色，动态内容彩色，增加流转岗位字段
-      messageContent = `您有新的订单流转，请相关同事关注\n\n订单编号: <font color="#FF8C00">${order.order_number}</font>\n\n商户名称: <font color="#32CD32">${order.customer_name || ''}</font>\n\n配送方式: <font color="#32CD32">${deliveryMethod}</font>\n\n品牌: <font color="#32CD32">${brandName}</font>\n\n销售员: <font color="#32CD32">${salesPerson}</font>\n\n流转岗位: <font color="#32CD32">${currentPositionWithCount}</font>`;
+      // 格式化消息内容为markdown样式，固定内容黑色，动态内容彩色，增加流转岗位、扫码人、扫描次数和商品数量字段
+      messageContent = `您有新的订单流转，请相关同事关注\n\n订单编号: <font color="#FF8C00">${order.order_number}</font>\n\n商户名称: <font color="#32CD32">${order.customer_name || ''}</font>\n\n配送方式: <font color="#32CD32">${deliveryMethod}</font>\n\n品牌: <font color="#32CD32">${brandName}</font>\n\n销售员: <font color="#32CD32">${salesPerson}</font>\n\n流转岗位: <font color="#32CD32">${currentPositionWithCount}</font>\n\n扫码人: <font color="#32CD32">${scannerName}</font>\n\n扫描次数: <font color="#32CD32">${totalScanCount}</font>\n\n商品数量: <font color="#32CD32">${productQuantity}</font>`;
     } else {
       // 如果数据库中没有找到订单信息，返回基本格式但不包含硬编码数据
-      messageContent = `您有新的订单流转，请相关同事关注\n\n订单编号: <font color="#FF8C00">${orderNumber}</font>\n\n商户名称: \n\n配送方式: \n\n品牌: \n\n销售员: \n\n流转岗位: <font color="#32CD32">${currentPositionWithCount}</font>`;
+      messageContent = `您有新的订单流转，请相关同事关注\n\n订单编号: <font color="#FF8C00">${orderNumber}</font>\n\n商户名称: \n\n配送方式: \n\n品牌: \n\n销售员: \n\n流转岗位: <font color="#32CD32">${currentPositionWithCount}</font>\n\n扫码人: <font color="#32CD32">${scannerName}</font>\n\n扫描次数: <font color="#32CD32">${totalScanCount}</font>\n\n商品数量: <font color="#32CD32">${productQuantity}</font>`;
     }
     
     const message = {
