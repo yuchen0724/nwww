@@ -141,24 +141,33 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log(`正在添加 ${data.results.length} 条扫描记录到表格`);
             // 添加新的扫描记录
             data.results.forEach(result => {
-              const newRow = document.createElement('tr');
-              newRow.innerHTML = `
-                <td>${result.timestamp}</td>
-                <td>${result.content}</td>
+              // 创建订单号行
+              const orderRow = document.createElement('tr');
+              orderRow.className = 'order-row';
+              orderRow.innerHTML = `
+                <td>📦 订单号：${result.content}</td>
+              `;
+              resultsTable.appendChild(orderRow);
+              
+              // 创建详情行
+              const detailRow = document.createElement('tr');
+              detailRow.className = 'detail-row';
+              detailRow.innerHTML = `
                 <td>
+                  <span class="detail-label">⏰ 时间：</span>${result.timestamp}
+                  <span class="detail-label ms-3">👤 岗位：</span>
                   ${result.status ? result.status : '<span class="text-muted">-</span>'}
-                </td>
-                <td>
+                  <span class="detail-label ms-3">📊 数量：</span>
                   ${result.quantity && result.quantity > 0 ? result.quantity : '<span class="text-muted">-</span>'}
                 </td>
               `;
-              resultsTable.appendChild(newRow);
+              resultsTable.appendChild(detailRow);
             });
             console.log('表格刷新完成');
           } else {
             // 显示暂无记录
             const noRecordRow = document.createElement('tr');
-            noRecordRow.innerHTML = '<td colspan="4" class="text-center">暂无扫描记录</td>';
+            noRecordRow.innerHTML = '<td class="text-center text-muted py-4">暂无扫描记录</td>';
             resultsTable.appendChild(noRecordRow);
             console.log('显示暂无记录提示');
           }
