@@ -784,14 +784,6 @@ app.post('/save-scan-result', async (req, res) => {
         console.log('订单信息获取并保存成功');
         scanStatus = '成功'; // 订单匹配成功
         responseData = { success: true };
-        
-        // 只有在订单处理完全成功时才发送消息到企业微信机器人
-        try {
-          await sendToWechatRobot(content);
-        } catch (error) {
-          console.error('发送消息到企业微信机器人时出错:', error);
-          // 即使发送失败，也继续返回成功，不影响用户体验
-        }
       }
     } catch (orderError) {
       scanStatus = '失败';
@@ -821,6 +813,16 @@ app.post('/save-scan-result', async (req, res) => {
     const finalScanType = scanType || 'qrcode'; // 如果前端没有传递scanType，默认为qrcode
     await recordScan(req.session.userInfo.userid, content, scanStatus, finalScanType);
     console.log(`微信扫码记录已保存到数据库，状态：${scanStatus}，类型：${finalScanType}`);
+    
+    // 只有在扫码记录保存成功且订单处理成功时才发送消息到企业微信机器人
+    if (scanStatus === '成功') {
+      try {
+        await sendToWechatRobot(content);
+      } catch (error) {
+        console.error('发送消息到企业微信机器人时出错:', error);
+        // 即使发送失败，也继续返回成功，不影响用户体验
+      }
+    }
   } catch (dbError) {
     console.error('保存微信扫码记录到数据库失败:', dbError);
     // 数据库操作失败不影响用户体验，继续处理
