@@ -65,6 +65,16 @@
       color: #6c757d;
       margin-right: 8px;
     }
+    /* 时间字段样式优化 */
+    .time-field {
+      display: inline-block;
+      max-width: 140px;
+      font-size: 0.9em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      vertical-align: middle;
+    }
     /* 响应式调整 */
     @media (max-width: 768px) {
       .table td {
@@ -72,6 +82,35 @@
       }
       .order-row td {
         padding: 10px 8px;
+      }
+    }
+    /* 横屏模式优化 */
+    @media (orientation: landscape) {
+      .container {
+        max-width: none !important;
+        width: 100% !important;
+        padding: 0 10px;
+        margin: 0;
+      }
+      .table {
+        width: 100%;
+        table-layout: fixed;
+        margin: 0;
+      }
+      .table td {
+        word-break: break-word;
+        padding: 8px 6px;
+      }
+      .time-field {
+        max-width: 120px;
+      }
+      .detail-row td {
+        font-size: 0.85em;
+      }
+      /* 确保表格容器充分利用屏幕宽度 */
+      .qr-results {
+        width: 100%;
+        margin: 20px 0;
       }
     }
   </style>
@@ -104,52 +143,6 @@
     </div>
 
     <div class="row">
-      <!-- 用户信息 -->
-      <!-- <% if (userInfo) { %>
-        <div class="col-md-6">
-          <div class="card">
-            <div class="card-header">用户信息</div>
-            <div class="card-body text-center">
-              <% if (userInfo.avatar) { %>
-                <img src="<%= userInfo.avatar %>" alt="头像" class="user-avatar mb-3">
-              <% } else { %>
-                <div class="user-avatar bg-secondary d-flex align-items-center justify-content-center mb-3 mx-auto">
-                  <span class="text-white fs-1"><%= userInfo.name.charAt(0) %></span>
-                </div>
-              <% } %>
-              <h5><%= userInfo.name %></h5>
-              <p class="text-muted"><%= userInfo.position || '无职位信息' %></p>
-              <table class="table table-striped">
-                <tbody>
-                  <tr>
-                    <th>用户ID</th>
-                    <td><%= userInfo.userid %></td>
-                  </tr>
-                  <tr>
-                    <th>部门</th>
-                    <td>
-                      <% if (userInfo.department && userInfo.department.length > 0) { %>
-                        <%= userInfo.department.join(', ') %>
-                      <% } else { %>
-                        无部门信息
-                      <% } %>
-                    </td>
-                  </tr>
-                  <tr>
-                    <th>邮箱</th>
-                    <td><%= userInfo.email || '无邮箱信息' %></td>
-                  </tr>
-                  <tr>
-                    <th>手机</th>
-                    <td><%= userInfo.mobile || '无手机信息' %></td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      <% } %> -->
-
       <!-- 二维码扫描 -->
       <div class="col-md-6">
         <div class="card">
@@ -175,21 +168,23 @@
                       <% qrResults.forEach(function(result) { %>
                         <!-- 订单号行 -->
                         <tr class="order-row">
-                          <td>📦 订单号：<%= result.content %></td>
+                          <td>
+                            📦 订单号：<%= result.content %>
+                            <span class="detail-label ms-3">📊 数量：</span>
+                            <% if (result.quantity && result.quantity > 0) { %>
+                              <%= result.quantity %>
+                            <% } else { %>
+                              <span class="text-muted">-</span>
+                            <% } %>
+                          </td>
                         </tr>
                         <!-- 详情行 -->
                         <tr class="detail-row">
                           <td>
-                            <span class="detail-label">⏰ 时间：</span><%= result.timestamp %>
+                            <span class="detail-label">⏰ 时间：</span><span class="time-field"><%= result.timestamp %></span>
                             <span class="detail-label ms-3">👤 岗位：</span>
                             <% if (result.status) { %>
                               <%= result.status %>
-                            <% } else { %>
-                              <span class="text-muted">-</span>
-                            <% } %>
-                            <span class="detail-label ms-3">📊 数量：</span>
-                            <% if (result.quantity && result.quantity > 0) { %>
-                              <%= result.quantity %>
                             <% } else { %>
                               <span class="text-muted">-</span>
                             <% } %>

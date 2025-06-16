@@ -16,7 +16,8 @@ const config = {
   corpid: 'ww94fc58ff493578de',
   corpsecret: '8AQL--JfDHaVUsInPPVigiCYjXS63sLZ6Lz2uUwNh-U',
   agentid: '1000089',
-  baseUrl: process.env.BASE_URL || 'http://ustar-test.tiremart.cn:27273' // 例如 'https://example.com' 或 'http://123.456.789.10:27273'
+  baseUrl: process.env.BASE_URL || 'http://ustar-test.tiremart.cn:27273', // 例如 'https://example.com' 或 'http://123.456.789.10:27273'
+  robotKey: '87229630-c634-4f68-8169-2b8cb9c65494' // 企业微信机器人webhook key
 };
 
 // 配置会话
@@ -438,7 +439,7 @@ app.get('/get-jsapi-config', async (req, res) => {
  */
 async function sendToWechatRobot(orderNumber) {
   try {
-    const webhookUrl = 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=87229630-c634-4f68-8169-2b8cb9c65494';
+    const webhookUrl = `https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=${config.robotKey}`;
     
     // 从数据库查询订单信息
     const orderQuery = `
