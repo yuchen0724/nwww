@@ -54,12 +54,40 @@ document.addEventListener('DOMContentLoaded', function() {
         needResult: 1, // 默认为0，扫描结果由微信处理，1则直接返回扫描结果
         scanType: ["qrCode", "barCode"], // 可以指定扫二维码还是一维码，默认二者都有
         success: function(res) {
-          const result = res.resultStr; // 当needResult为1时，扫码返回的结果
+          let result = res.resultStr; // 当needResult为1时，扫码返回的结果
           const codeType = res.codeType; // 获取扫描码类型：QR_CODE 或 BARCODE
 
           // 根据codeType字段判断扫描类型
           const isBarCode = codeType === 'barcode';
           const scanType = isBarCode ? 'barcode' : 'qrcode';
+          
+          /**
+           * 处理扫描结果，如果是URL且包含orderNo参数，则提取orderNo值并添加OCT_前缀
+           * @param {string} scanResult - 扫描得到的原始结果
+           * @returns {string} - 处理后的结果
+           */
+          function processQrResult(scanResult) {
+            try {
+              // 检查是否为URL
+              const url = new URL(scanResult);
+              
+              // 提取orderNo参数
+              const orderNo = url.searchParams.get('orderNo');
+              
+              if (orderNo) {
+                // 如果找到orderNo参数，返回OCT_前缀加上orderNo值
+                return 'OCT_' + orderNo;
+              }
+            } catch (e) {
+              // 如果不是有效的URL，忽略错误继续使用原始结果
+            }
+            
+            // 如果不是URL或没有orderNo参数，返回原始结果
+            return scanResult;
+          }
+          
+          // 处理扫描结果
+          result = processQrResult(result);
           
           // 显示扫描结果
           const scanTypeText = isBarCode ? '条形码' : '二维码';
