@@ -49,6 +49,9 @@ crontab -e
 
 # 添加以下行（每天凌晨2点执行）
 0 2 * * * cd /home/zhengqiang/nwww && node refresh_stock_info.js >> /var/log/refresh_stock.log 2>&1
+
+# 添加以下行（每10分钟执行一次）
+0/10 * * * * cd /home/zhengqiang/nwww && node refresh_order_info.js >> /var/log/refresh_order.log 2>&1
 ```
 
 ## 脚本特性
