@@ -254,7 +254,7 @@ async function findOrdersWithMissingStockInfo() {
       select distinct scan_result order_number
         from wecom.scan_records 
         left join wecom.kingdee_orders on scan_result=order_number
-       where order_number is null and upper(scan_result) like 'OCT%'
+       where order_number is null and upper(scan_result) like 'OCT%' and DATE_TRUNC('day',scan_time)=current_date
        order by scan_result
     `);
     
